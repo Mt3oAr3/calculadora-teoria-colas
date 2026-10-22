@@ -148,6 +148,37 @@ class TestEscenario(unittest.TestCase):
         self.assertEqual(fila_cts.celdas[2].dato, 500)
 
 
+class TestSistemasIdenticos(unittest.TestCase):
+    """Ejercicio 18 (2 cajas M/M/1 independientes, λ=30/h, 1 min por cliente, 10 h/día)."""
+
+    def _esc(self, S):
+        return cs.calcular_escenario(cs.leer_parametros(entradas(
+            S=str(S), k="1", lam_modo=cs.MODO_LAM[0], lam="30", lam_u="hora",
+            mu_modo=cs.MODO_MU[1], mu="1", mu_u="minuto", H="10",
+            cS="10", cS_u="hora", cW="50", cW_u="hora")))
+
+    def test_costo_total_de_dos_cajas(self):
+        c = self._esc(2).costos
+        self.assertAlmostEqual(c["ct_s"], 200)       # 2 empleados × 10 h × 10
+        self.assertAlmostEqual(c["ct_te"], 500)      # 2 × 0.5 × 10 h × 50
+        self.assertAlmostEqual(c["ct"], 700)
+
+    def test_una_caja_no_cambia(self):
+        self.assertAlmostEqual(self._esc(1).costos["ct"], 350)
+
+    def test_totales_por_dia(self):
+        filas = {f.celdas[0]: f.celdas[1].dato for f in cs.tabla_por_dia(self._esc(2)).filas
+                 if f.celdas[0].startswith("Los 2")}
+        self.assertAlmostEqual(filas["Los 2 sistemas: clientes esperando a la vez (S × Lq)"], 1.0)
+        self.assertAlmostEqual(filas["Los 2 sistemas: horas de ocio sumadas (S × ociosos × horas)"], 10.0)
+        self.assertAlmostEqual(filas["Los 2 sistemas: todos desocupados a la vez (P0^S × horas)"], 2.5)
+
+    def test_valor_invalido(self):
+        for malo in ("0", "1.5", "x", "101"):
+            with self.assertRaises(ErrorEntrada):
+                cs.leer_parametros(entradas(S=malo))
+
+
 class TestFormateador(unittest.TestCase):
 
     def test_formato_numerico(self):

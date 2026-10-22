@@ -39,6 +39,8 @@ class Fila:
     celdas: list
     # Etiquetas de estado: 'principal', 'ok' (cumple condición), 'mejor' (menor costo), 'actual'
     etiquetas: tuple = ()
+    # Indicador al que corresponde la fila (ver services/formulas.py); None si no tiene fórmula
+    clave: str | None = None
 
 
 @dataclass

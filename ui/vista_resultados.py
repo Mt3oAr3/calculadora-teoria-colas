@@ -63,7 +63,7 @@ class VistaResultados:
         ttk.Label(t, text="Operación diaria", style="Seccion.TLabel").pack(anchor="w")
         ttk.Label(t, text="Tiempo en un estado = probabilidad × horas.   Clientes que esperan = "
                           "λ efectiva × horas × probabilidad de esperar.", style="Nota.TLabel").pack(anchor="w", pady=(0, 4))
-        self.tabla_dia = VistaTabla(t, alto=11)
+        self.tabla_dia = VistaTabla(t, alto=14)
         self.tabla_dia.pack(fill="x")
         ttk.Label(t, text="Costos e ingresos", style="Seccion.TLabel").pack(anchor="w", pady=(12, 4))
         self.tabla_cost = VistaTabla(t, alto=7)

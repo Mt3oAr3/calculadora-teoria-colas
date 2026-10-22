@@ -1,7 +1,7 @@
 # Calculadora de Teoría de Colas
 
-Aplicación de escritorio (Python + Tkinter + Matplotlib) para resolver problemas de
-líneas de espera con llegadas Poisson y servicio exponencial. Calcula las medidas de
+Aplicación de escritorio (Python + Matplotlib, con dos interfaces: Tkinter y PySide6)
+para resolver problemas de líneas de espera con llegadas Poisson y servicio exponencial. Calcula las medidas de
 desempeño, probabilidades, indicadores por día, costos, compara escenarios variando
 el número de servidores **k** o la población **M** y dibuja 11 gráficas de tendencia.
 
@@ -39,20 +39,29 @@ Supuestos relevantes:
   probabilidades de la cola y distribución completa), **Por día y costos**,
   **Comparar k y M** (búsqueda por condición y menor costo) y **Gráficas**.
 - Exportación de tablas a CSV y de gráficas a PNG (una o todas).
+- **Sistemas idénticos S:** varios sistemas iguales e independientes (p. ej. 2 cajas, cada
+  una con su cola); costos y totales se suman.
+- **Interfaz moderna (PySide6):** tema claro y oscuro, navegación lateral, secciones
+  plegables, tarjetas de indicadores, tablas ordenables y el panel **«Cómo se calculó»**:
+  al hacer clic en una tarjeta o en una fila se muestra la fórmula del modelo (dibujada con
+  mathtext de matplotlib), la misma fórmula con los datos actuales y el resultado.
 
 ## Requisitos e instalación
 
 1. Python **3.10 o superior**. Tkinter viene incluido en Windows y macOS; en Linux:
    `sudo apt install python3-tk`.
-2. Instalar la dependencia:
+2. Instalar las dependencias (`matplotlib` y, para la interfaz moderna, `PySide6`):
 
        pip install -r requirements.txt
 
-   (Única dependencia externa: `matplotlib`.)
-
 ## Ejecutar
 
-    python main.py
+    python main_qt.py            interfaz moderna (PySide6), tema claro
+    python main_qt.py --oscuro   interfaz moderna, tema oscuro
+    python main.py               interfaz clásica (Tkinter)
+
+Atajos de la interfaz moderna: Enter o F5 calcula, Ctrl+1…5 cambia de página, Ctrl+T
+alterna el tema y Esc cierra el panel «Cómo se calculó».
 
 ## Ejecutar las pruebas
 
@@ -64,7 +73,8 @@ Las pruebas usan `unittest` (biblioteca estándar) y no abren la interfaz:
 
 ```text
 calculadora_colas/
-├── main.py                      Punto de entrada
+├── main.py                      Punto de entrada (Tkinter)
+├── main_qt.py                   Punto de entrada (PySide6)
 ├── domain/                      Matemática pura (sin Tkinter ni matplotlib)
 │   ├── modelos_colas.py         Fórmulas M/M/k y M/M/k/M/M, probabilidades, barridos de k y M
 │   ├── unidades.py              Conversión de tasas/tiempos a «por hora»
@@ -74,7 +84,8 @@ calculadora_colas/
 │   ├── calculadora_service.py   Validación del formulario, escenario, tablas e indicadores
 │   ├── comparacion_service.py   Tablas en función de k y M con una condición
 │   ├── exportacion_service.py   CSV y PNG a partir de datos (no de widgets)
-│   └── tablas.py                Estructura Tabla/Valor y formato de números
+│   ├── formulas.py              «Cómo se calculó»: fórmula, sustitución y resultado de cada indicador
+│   └── tablas.py                Estructura Tabla/Fila/Valor y formato de números
 ├── visualization/
 │   └── graficas_colas.py        Las 11 gráficas sobre una Figure de matplotlib
 ├── ui/                          Interfaz Tkinter
@@ -86,15 +97,42 @@ calculadora_colas/
 │   ├── vista_graficas.py        Pestaña Gráficas
 │   ├── componentes.py           Panel desplazable, tabla y tarjeta reutilizables
 │   └── estilos.py               Colores, tipografías y estilos ttk
+├── ui_qt/                       Interfaz PySide6 (única capa que importa Qt)
+│   ├── app.py                   QApplication y arranque
+│   ├── ventana_principal.py     Ventana, flujo de cálculo, exportación y tema
+│   ├── barra_lateral.py         Navegación y botón de tema
+│   ├── panel_entradas.py        Formulario en secciones plegables, errores por campo
+│   ├── seccion_plegable.py      Sección plegable del formulario
+│   ├── tarjetas.py              Resumen del modelo y tarjetas de indicadores
+│   ├── modelo_tabla.py          Adaptador Qt de Tabla (colores, orden por valor crudo)
+│   ├── vista_tabla.py           Tabla reutilizable con mensaje de vacío
+│   ├── vista_resultados.py  vista_probabilidades.py  vista_costos.py
+│   ├── vista_comparacion.py     Comparar k y M
+│   ├── vista_graficas.py        Gráficas incrustadas (FigureCanvasQTAgg)
+│   ├── panel_formulas.py        Panel «Cómo se calculó»
+│   ├── render_formula.py        mathtext -> QPixmap (backend Agg)
+│   └── tema.py                  Paletas claro/oscuro y hoja de estilos QSS
 └── tests/                       Pruebas automatizadas (unittest)
     ├── datos/referencia_original.json
-    ├── test_modelos.py  test_unidades.py  test_costos.py
+    ├── test_modelos.py  test_unidades.py  test_costos.py  test_formulas.py
     ├── test_servicios.py  test_comparaciones.py  test_arquitectura.py
 ```
 
 Reglas de dependencia (verificadas por `tests/test_arquitectura.py`):
-`ui → services → domain`, y `visualization → domain`. El dominio no importa Tkinter,
-matplotlib ni otras capas.
+`ui → services → domain`, `ui_qt → services → domain` y `visualization → domain`. El
+dominio no importa Tkinter, matplotlib ni otras capas. Qt (PySide6) solo se importa
+dentro de `ui_qt/`; `ui/` y `ui_qt/` no se importan entre sí.
+
+## «Cómo se calculó»
+
+`services/formulas.formula(escenario, clave, formateador)` devuelve un objeto `Formula`
+(título, fórmula en mathtext, pasos con los valores sustituidos, resultado y explicación).
+Las fórmulas cambian según el modelo (M/M/1, M/M/k, población finita) y son las que
+implementan `domain/modelos_colas.py` y `domain/costos.py`. Los valores sustituidos y el
+resultado salen del escenario calculado (o de las mismas funciones del dominio que arman
+las tablas): no se recalculan con otra fórmula. Cada fila de las tablas lleva su `clave`
+(`Fila.clave`), y `tests/test_formulas.py` comprueba que el resultado de cada fórmula
+coincide con el valor de su fila y del dominio en todos los modelos.
 
 ## Flujo de datos
 

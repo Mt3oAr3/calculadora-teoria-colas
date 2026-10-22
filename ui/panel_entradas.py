@@ -134,6 +134,9 @@ class PanelEntradas(ttk.Frame):
             ttk.Radiobutton(radios, text=texto, value=texto, variable=self._var("poblacion")).pack(side="left", padx=(0, 10))
         g._fila = 1
         self._campo(g, "k", "Servidores k", "servidores", "Canales de servicio en paralelo (entero ≥ 1).")
+        self._campo(g, "S", "Sistemas idénticos", "sistemas",
+                    "Ej.: 2 cajas, cada una con su propia cola e iguales (cada una M/M/k). "
+                    "Costos y totales se suman. Usa 1 si hay un solo sistema.")
 
     def _grupo_capacidad(self, padre, fila):
         g = self._grupo(padre, fila, "Capacidad y población")

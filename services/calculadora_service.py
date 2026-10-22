@@ -30,7 +30,7 @@ DECIMALES = ["2", "3", "4", "6"]
 # Valores iniciales: un M/M/1 estable de ejemplo (λ = 10 clientes/h, servicio
 # de 4 min → μ = 15/h, ρ ≈ 0,67), jornada de 12 h, 7 días, sin costos.
 VALORES_INICIALES = {
-    "poblacion": "Infinita", "k": "1", "M": "4",
+    "poblacion": "Infinita", "k": "1", "S": "1", "M": "4",
     "lam_modo": MODO_LAM[0], "lam_u": "hora", "lam": "10",
     "mu_modo": MODO_MU[1], "mu_u": "minuto", "mu": "4",
     "H": "12", "D": "7",
@@ -56,6 +56,7 @@ class ReglaNumerica:
 # instantáneos; Mmax ≤ 300 es el límite que ya tenía la versión original.
 REGLAS = {
     "k": ReglaNumerica("Servidores k", entero=True, minimo=1, maximo=1000),
+    "S": ReglaNumerica("Sistemas idénticos", entero=True, minimo=1, maximo=100),
     "M": ReglaNumerica("Población M", entero=True, minimo=1, maximo=10000, solo_finita=True),
     "lam": ReglaNumerica("Llegadas λ (valor)", minimo=0, minimo_excluido=True),
     "mu": ReglaNumerica("Servicio μ (valor)", minimo=0, minimo_excluido=True),
@@ -122,6 +123,7 @@ def _n(x):
 class Parametros:
     finita: bool
     k: int
+    S: int                 # sistemas idénticos e independientes (1 = normal)
     M: int | None          # None en población infinita
     lam: float             # clientes por hora (en finita: por unidad de la población)
     mu: float              # clientes por hora por servidor
@@ -169,8 +171,8 @@ def leer_parametros(entradas):
     cfg = dc.configuracion_costos(
         c_servidor=num["cS"], c_servidor_u=entradas["cS_u"],
         c_espera=num["cW"], c_espera_u=entradas["cW_u"], base_espera=BASES_ESPERA[entradas["cW_b"]],
-        c_ocio=num["cI"], ingreso=num["ing"], frac_ingreso=num["ingF"])
-    return Parametros(finita=finita, k=num["k"], M=num.get("M"), lam=tasas["lam"], mu=tasas["mu"],
+        c_ocio=num["cI"], ingreso=num["ing"], frac_ingreso=num["ingF"], sistemas=num["S"])
+    return Parametros(finita=finita, k=num["k"], S=num["S"], M=num.get("M"), lam=tasas["lam"], mu=tasas["mu"],
                       H=num["H"], D=num["D"], cfg=cfg, kmax=num["kmax"], Mmax=num.get("Mmax"))
 
 
@@ -223,7 +225,8 @@ class Escenario:
         p = self.p
         pob = f"población finita de {p.M}" if p.finita else "población infinita"
         canales = "un canal" if p.k == 1 else f"{p.k} canales"
-        return f"{self.sigla} · {pob} · {canales}"
+        sis = f" · {p.S} sistemas idénticos" if p.S > 1 else ""
+        return f"{self.sigla} · {pob} · {canales}{sis}"
 
 
 def calcular_escenario(p):
@@ -265,6 +268,7 @@ class Indicador:
     nombre: str
     valor: Valor
     ayuda: str
+    clave: str = ""        # clave de la fórmula en services/formulas.py
 
 
 def indicadores_principales(esc):
@@ -274,18 +278,18 @@ def indicadores_principales(esc):
         return []
     util = "Utilización de los servidores" if r["finita"] else "Utilización por servidor"
     lista = [
-        Indicador("ρ", util, Valor(r["util"], "pct"), "Fracción del tiempo que trabaja cada servidor."),
-        Indicador("P0", "Sistema vacío", Valor(r["P0"]), "Probabilidad de que no haya clientes."),
+        Indicador("ρ", util, Valor(r["util"], "pct"), "Fracción del tiempo que trabaja cada servidor.", "rho"),
+        Indicador("P0", "Sistema vacío", Valor(r["P0"]), "Probabilidad de que no haya clientes.", "P0"),
         Indicador("Pw", "Probabilidad de esperar", Valor(r["frac_espera"]),
-                  "Fracción de clientes que llegan y deben hacer cola."),
-        Indicador("Lq", "Clientes en cola", Valor(r["Lq"]), "Longitud media de la línea de espera."),
-        Indicador("L", "Clientes en el sistema", Valor(r["L"]), "En cola más en servicio."),
-        Indicador("Wq", "Tiempo en cola", Valor(r["Wq"], "tiempo"), "Espera media antes de ser atendido."),
-        Indicador("W", "Tiempo en el sistema", Valor(r["W"], "tiempo"), "Espera más servicio."),
+                  "Fracción de clientes que llegan y deben hacer cola.", "Pw"),
+        Indicador("Lq", "Clientes en cola", Valor(r["Lq"]), "Longitud media de la línea de espera.", "Lq"),
+        Indicador("L", "Clientes en el sistema", Valor(r["L"]), "En cola más en servicio.", "L"),
+        Indicador("Wq", "Tiempo en cola", Valor(r["Wq"], "tiempo"), "Espera media antes de ser atendido.", "Wq"),
+        Indicador("W", "Tiempo en el sistema", Valor(r["W"], "tiempo"), "Espera más servicio.", "W"),
     ]
     if r["finita"]:
         lista.append(Indicador("M−L", "Unidades operando", Valor(r["operando"]),
-                               "Unidades de la población fuera del sistema."))
+                               "Unidades de la población fuera del sistema.", "operando"))
     return lista
 
 
@@ -297,24 +301,32 @@ def tabla_resultados(esc):
     if not r["ok"]:
         return t
     for ind in indicadores_principales(esc):
-        t.filas.append(Fila([ind.simbolo, ind.nombre, ind.valor, ind.ayuda], ("principal",)))
+        t.filas.append(Fila([ind.simbolo, ind.nombre, ind.valor, ind.ayuda], ("principal",), ind.clave))
     if r["finita"]:
         t.filas.append(Fila(["λef", "λ efectiva", Valor(r["lam_ef"], sufijo=" /h"),
-                             "λ(M − L): llegadas reales por hora."], ("principal",)))
+                             "λ(M − L): llegadas reales por hora."], ("principal",), "lam_ef"))
         t.filas.append(Fila(["%op", "Fracción de la población operando", Valor(r["frac_operando"], "pct"),
-                             "(M − L) ÷ M."]))
+                             "(M − L) ÷ M."], (), "frac_operando"))
     pw_det = " (vista por quien llega)." if r["finita"] else " (= P(n≥k))."
     secundarias = [
-        ("1−Pw", "Probabilidad de no esperar", Valor(r["frac_no_espera"]), "Atendidos en cuanto llegan."),
-        ("P(n<k)", "Algún servidor libre", Valor(r["Plt"]), "Uno o varios desocupados."),
-        ("P(n≥k)", "Todos ocupados", Valor(r["Pk"]), "Proporción del tiempo con todos ocupados" + pw_det),
-        ("P(n>k)", "Hay línea de espera", Valor(r["Pgt"]), "Al menos un cliente en cola."),
-        ("P(n=k)", "Todos ocupados y nadie esperando", Valor(r["p"][r["k_ef"]]), ""),
-        ("Wn", "Espera de los que sí esperan", Valor(r["Wn"], "tiempo"), "Wq ÷ probabilidad de esperar."),
-        ("Ln", "Clientes en cola no vacía", Valor(r["Ln"]), "Lq ÷ P(n>k)."),
-        ("Ociosos", "Servidores ociosos en promedio", Valor(r["ociosos"]), "Para el costo de ociosidad."),
+        ("1−Pw", "Probabilidad de no esperar", Valor(r["frac_no_espera"]), "Atendidos en cuanto llegan.",
+         "frac_no_espera"),
+        ("P(n<k)", "Algún servidor libre", Valor(r["Plt"]), "Uno o varios desocupados.", "Plt"),
+        ("P(n≥k)", "Todos ocupados", Valor(r["Pk"]), "Proporción del tiempo con todos ocupados" + pw_det, "Pk"),
+        ("P(n>k)", "Hay línea de espera", Valor(r["Pgt"]), "Al menos un cliente en cola.", "Pgt"),
+        ("P(n=k)", "Todos ocupados y nadie esperando", Valor(r["p"][r["k_ef"]]), "", f"Pn:{r['k_ef']}"),
+        ("Wn", "Espera de los que sí esperan", Valor(r["Wn"], "tiempo"), "Wq ÷ probabilidad de esperar.", "Wn"),
+        ("Ln", "Clientes en cola no vacía", Valor(r["Ln"]), "Lq ÷ P(n>k).", "Ln"),
+        ("Ociosos", "Servidores ociosos en promedio", Valor(r["ociosos"]), "Para el costo de ociosidad.",
+         "ociosos"),
     ]
-    t.filas += [Fila(list(f)) for f in secundarias]
+    t.filas += [Fila(list(f[:4]), (), f[4]) for f in secundarias]
+    S = esc.p.S
+    if S > 1:
+        t.filas.append(Fila(["S·Lq", f"Clientes en cola ({S} sistemas)", Valor(S * r["Lq"]),
+                             "Suma de las colas de los sistemas idénticos."], ("principal",), "S_Lq"))
+        t.filas.append(Fila(["S·L", f"Clientes en el sistema ({S} sistemas)", Valor(S * r["L"]),
+                             "En cola más en servicio, todos los sistemas."], (), "S_L"))
     return t
 
 
@@ -322,7 +334,8 @@ def tabla_probabilidades(esc, a, b):
     cols = [Columna("Probabilidad", False), Columna("Significado", False), Columna("Valor")]
     t = Tabla("Probabilidades", cols, mensaje_vacio="Sin resultados: el sistema es inestable.")
     if esc.r["ok"]:
-        t.filas = [Fila([s, sig, Valor(v)]) for s, sig, v in mc.probabilidades_rango(esc.r, a, b)]
+        t.filas = [Fila([s, sig, Valor(v)], (), f"prob:{i}:{a}:{b}")
+                   for i, (s, sig, v) in enumerate(mc.probabilidades_rango(esc.r, a, b))]
     return t
 
 
@@ -332,7 +345,7 @@ def tabla_distribucion(esc):
     if esc.r["ok"]:
         kk = esc.r["k_ef"]
         t.filas = [Fila([Valor(n, "entero"), Valor(c, "entero"), Valor(pn), Valor(ac), Valor(sup)],
-                        ("actual",) if n == kk else ())
+                        ("actual",) if n == kk else (), f"dist:{n}")
                    for n, c, pn, ac, sup in mc.distribucion(esc.r)]
     return t
 
@@ -343,10 +356,18 @@ def tabla_por_dia(esc):
     r, H, D = esc.r, esc.p.H, esc.p.D
     if not r["ok"]:
         return t
-    for concepto, horas in dc.horas_por_estado(r, H):
-        t.filas.append(Fila([concepto, Valor(horas), Valor(horas * 60), Valor(horas * D, sufijo=" h")]))
-    for concepto, n in dc.clientes_por_dia(r, H):
-        t.filas.append(Fila([concepto, Valor(n, sufijo=" clientes"), "", Valor(n * D, sufijo=" clientes")]))
+    for i, (concepto, horas) in enumerate(dc.horas_por_estado(r, H)):
+        t.filas.append(Fila([concepto, Valor(horas), Valor(horas * 60), Valor(horas * D, sufijo=" h")],
+                            (), f"horas:{i}"))
+    for i, (concepto, n) in enumerate(dc.clientes_por_dia(r, H)):
+        t.filas.append(Fila([concepto, Valor(n, sufijo=" clientes"), "", Valor(n * D, sufijo=" clientes")],
+                            (), f"clientes:{i}"))
+    for i, (concepto, v, tipo) in enumerate(dc.totales_sistemas(r, H, esc.p.S)):
+        if tipo == "h":
+            t.filas.append(Fila([concepto, Valor(v), Valor(v * 60), Valor(v * D, sufijo=" h")], (), f"sistemas:{i}"))
+        else:
+            t.filas.append(Fila([concepto, Valor(v, sufijo=" clientes"), "", Valor(v * D, sufijo=" clientes")],
+                                (), f"sistemas:{i}"))
     return t
 
 
@@ -356,20 +377,21 @@ def tabla_costos(esc):
     c = esc.costos
     if c is None:
         return t
-    D, H = esc.p.D, esc.p.H
+    D, H, S = esc.p.D, esc.p.H, esc.p.S
     base = esc.p.cfg["base_espera"]
+    suma = f" (suma de {S} sistemas)" if S > 1 else ""
     filas = [
-        ("CT(S) costo de servidores", c["ct_s"], "k × costo por servidor"),
-        ("CT(TE) costo del tiempo de espera", c["ct_te"], f"{base} × horas × costo por hora"),
-        ("Costo de ociosidad", c["ct_ocio"], "Servidores ociosos × horas × costo por hora"),
-        ("CT costo total", c["ct"], Valor(c["ct"] / H, "dinero", sufijo=" por hora")),
-        ("Ingresos", c["ingreso"], "λ efectiva × horas × fracción × ingreso"),
+        ("CT(S) costo de servidores", c["ct_s"], "k × costo por servidor" + suma, "ct_s"),
+        ("CT(TE) costo del tiempo de espera", c["ct_te"], f"{base} × horas × costo por hora" + suma, "ct_te"),
+        ("Costo de ociosidad", c["ct_ocio"], "Servidores ociosos × horas × costo por hora" + suma, "ct_ocio"),
+        ("CT costo total", c["ct"], Valor(c["ct"] / H, "dinero", sufijo=" por hora"), "ct"),
+        ("Ingresos", c["ingreso"], "λ efectiva × horas × fracción × ingreso" + suma, "ingreso"),
     ]
-    for concepto, v, detalle in filas:
+    for concepto, v, detalle, clave in filas:
         etiquetas = ("principal",) if concepto.startswith("CT costo") else ()
-        t.filas.append(Fila([concepto, Valor(v, "dinero"), Valor(v * D, "dinero"), detalle], etiquetas))
+        t.filas.append(Fila([concepto, Valor(v, "dinero"), Valor(v * D, "dinero"), detalle], etiquetas, clave))
     t.filas.append(Fila(["Rentabilidad (ingresos ÷ gastos)", Valor(c["rentabilidad"]), "",
-                         Valor(c["ingreso"] - c["ct"], "dinero", prefijo="Utilidad diaria: ")]))
+                         Valor(c["ingreso"] - c["ct"], "dinero", prefijo="Utilidad diaria: ")], (), "rentabilidad"))
     return t
 
 
