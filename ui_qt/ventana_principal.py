@@ -4,12 +4,15 @@ Ventana principal de la versión Qt. Coordina el mismo flujo que ui/app.py:
 
     PanelEntradas --(texto)--> calculadora_service.leer_parametros()
                   --> calculadora_service.calcular_escenario()
-                  --> PanelResumen (tarjetas) y las páginas de resultados
+                  --> AreaResultados (encabezado, pestañas con tarjetas y tablas)
     clic en tarjeta o fila --> PanelFormulas («Cómo se calculó»)
+
+Distribución: barra superior fina, banner global de datos desactualizados y, debajo,
+el panel de parámetros a la izquierda y el área de resultados con pestañas a la derecha.
 
 Distingue tres tipos de fallo:
     ErrorEntrada  -> se marcan los campos en el formulario.
-    ErrorModelo   -> limitación matemática / numérica, se explica en el resumen.
+    ErrorModelo   -> limitación matemática / numérica, se explica en el encabezado.
     otro          -> error inesperado: mensaje breve al usuario y traza en consola.
 En cualquier fallo se retiran los resultados anteriores para no confundirlos.
 """
@@ -17,8 +20,8 @@ import traceback
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QKeySequence, QShortcut
-from PySide6.QtWidgets import (QApplication, QFileDialog, QHBoxLayout, QLabel, QMainWindow, QMessageBox,
-                               QScrollArea, QSizePolicy, QSplitter, QStackedWidget, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QApplication, QFileDialog, QLabel, QMainWindow, QMessageBox, QSplitter, QVBoxLayout,
+                               QWidget)
 
 from domain.errores import ErrorEntrada, ErrorModelo
 from services import calculadora_service as cs
@@ -26,18 +29,15 @@ from services import exportacion_service as ex
 from services.tablas import Formateador
 
 from . import tema
-from .barra_lateral import PAGINAS, BarraLateral
+from .area_resultados import PESTANAS, AreaResultados
+from .banner_desactualizado import BannerDesactualizado
+from .barra_superior import BarraSuperior
 from .panel_entradas import PanelEntradas
 from .panel_formulas import PanelFormulas
-from .tarjetas import PanelResumen
-from .vista_comparacion import PaginaComparacion
-from .vista_costos import PaginaCostos
-from .vista_graficas import PaginaGraficas
-from .vista_probabilidades import PaginaProbabilidades
-from .vista_resultados import PaginaResultados
 
 TITULO = "Calculadora de Teoría de Colas - Técnicas de Simulación"
-CENTRO_COMODO = 500      # ancho deseado del centro al abrir el panel de fórmulas
+TAMANO_INICIAL = (1480, 900)
+TAMANO_MINIMO = (1100, 680)
 
 
 class VentanaPrincipal(QMainWindow):
@@ -45,8 +45,8 @@ class VentanaPrincipal(QMainWindow):
     def __init__(self, tema_inicial="claro"):
         super().__init__()
         self.setWindowTitle(TITULO)
-        self.resize(1480, 900)
-        self.setMinimumSize(1300, 700)
+        self.resize(*TAMANO_INICIAL)
+        self.setMinimumSize(*TAMANO_MINIMO)
         self.esc = None                  # escenario vigente (None si no hay resultados válidos)
         self.desactualizado = False      # True si se editaron datos después de calcular
         tema.aplicar(QApplication.instance(), tema_inicial)
@@ -56,81 +56,54 @@ class VentanaPrincipal(QMainWindow):
 
     # ------------------------------------------------------------------
     def _construir(self):
-        self.barra = BarraLateral()
+        self.barra = BarraSuperior()
+        self.barra.cambiar_tema.connect(self.alternar_tema)
+        self.banner = BannerDesactualizado()
+        self.banner.calcular.connect(self.calcular)
+
         self.panel = PanelEntradas()
         self.panel.calcular.connect(self.calcular)
         self.panel.exportar.connect(self.exportar_csv)
         self.panel.datos_cambiaron.connect(self._datos_cambiaron)
         self.panel.presentacion_cambio.connect(self._presentacion_cambio)
 
-        # Centro: tarjetas arriba y páginas debajo, todo desplazable si la ventana es baja
-        centro = QWidget()
-        centro.setObjectName("Contenido")
-        lc = QVBoxLayout(centro)
-        lc.setContentsMargins(16, 16, 16, 12)
-        lc.setSpacing(14)
-        self.resumen = PanelResumen()
-        self.resumen.indicador_clicado.connect(self.mostrar_formula)
-        lc.addWidget(self.resumen)
-        self.paginas = QStackedWidget()
-        self.p_resultados = PaginaResultados()
-        self.p_probabilidades = PaginaProbabilidades()
-        self.p_costos = PaginaCostos()
-        self.p_comparacion = PaginaComparacion(unidad_tiempo=lambda: self.panel.get("ut"))
-        self.p_graficas = PaginaGraficas()
-        self.p_graficas.aviso.connect(self.avisar)
-        for pag in (self.p_resultados, self.p_probabilidades, self.p_costos, self.p_comparacion, self.p_graficas):
-            self.paginas.addWidget(pag)
-        for pag in (self.p_resultados, self.p_probabilidades, self.p_costos):
-            pag.fila_clicada.connect(self.mostrar_formula)
-        self.paginas.setMinimumHeight(380)
-        lc.addWidget(self.paginas, 1)
-        desplazable = QScrollArea()
-        desplazable.setWidgetResizable(True)
-        desplazable.setFrameShape(QScrollArea.NoFrame)
-        desplazable.setWidget(centro)
-        desplazable.setMinimumWidth(380)
+        self.area = AreaResultados(unidad_tiempo=lambda: self.panel.get("ut"))
+        self.area.fila_clicada.connect(self.mostrar_formula)
+        self.area.aviso.connect(self.avisar)
+        # Atajos a las páginas
+        self.p_resultados, self.p_probabilidades = self.area.resultados, self.area.probabilidades
+        self.p_costos, self.p_comparacion, self.p_graficas = self.area.costos, self.area.comparacion, self.area.graficas
 
         self.formulas = PanelFormulas()
-        self.formulas.cerrado.connect(lambda: self.resumen.marcar_activa(None))
+        self.formulas.cerrado.connect(lambda: self.p_resultados.tarjetas.marcar_activa(None))
         self.formulas.hide()
 
         self.divisor = QSplitter(Qt.Horizontal)
         self.divisor.setChildrenCollapsible(False)
         self.divisor.setHandleWidth(4)
-        for w in (self.panel, desplazable, self.formulas):
+        for w in (self.panel, self.area, self.formulas):
             self.divisor.addWidget(w)
         self.divisor.setStretchFactor(1, 1)
-        self.divisor.setSizes([360, 1000, 380])
+        self.divisor.setSizes([360, 1100, 380])
 
         raiz = QWidget()
-        lay = QHBoxLayout(raiz)             # la barra lateral tiene ancho fijo
+        lay = QVBoxLayout(raiz)
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(0)
         lay.addWidget(self.barra)
+        lay.addWidget(self.banner)
         lay.addWidget(self.divisor, 1)
         self.setCentralWidget(raiz)
 
         self.estado = QLabel("Listo.")
         self.statusBar().addWidget(self.estado, 1)
-        self.barra.pagina_elegida.connect(self._ir_a_pagina)
-        self.barra.cambiar_tema.connect(self.alternar_tema)
-        self.barra.elegir(0)
-
-    def _ir_a_pagina(self, indice):
-        """Solo la página visible cuenta para el tamaño mínimo (QStackedWidget usa el de todas)."""
-        for i in range(self.paginas.count()):
-            politica = QSizePolicy.Preferred if i == indice else QSizePolicy.Ignored
-            self.paginas.widget(i).setSizePolicy(politica, politica)
-        self.paginas.setCurrentIndex(indice)
-        self.paginas.adjustSize()
 
     def _atajos(self):
         QShortcut(QKeySequence(Qt.Key_F5), self, self.calcular)
         QShortcut(QKeySequence("Ctrl+T"), self, self.alternar_tema)
         QShortcut(QKeySequence(Qt.Key_Escape), self, self.formulas.cerrar)
-        for i in range(len(PAGINAS)):
-            QShortcut(QKeySequence(f"Ctrl+{i + 1}"), self, lambda i=i: self.barra.elegir(i))
+        for i in range(len(PESTANAS)):
+            QShortcut(QKeySequence(f"Ctrl+{i + 1}"), self, lambda i=i: self.area.ir_a(i))
 
     def avisar(self, texto):
         self.estado.setText(texto)
@@ -138,6 +111,13 @@ class VentanaPrincipal(QMainWindow):
     def _formateador(self):
         H = self.esc.p.H if self.esc else 8.0
         return Formateador(int(self.panel.get("dec")), self.panel.get("ut"), H)
+
+    def _marcar_desactualizado(self, si):
+        """Único lugar donde cambia el estado «desactualizado» y su aviso (el banner global)."""
+        self.desactualizado = si
+        self.banner.mostrar(si)
+        self.p_resultados.tarjetas.marcar_desactualizado(si)
+        self.panel.habilitar_exportar(self.esc is not None and not si)
 
     # ------------------------------------------------------------------
     # Cálculo
@@ -164,50 +144,34 @@ class VentanaPrincipal(QMainWindow):
                                                            f"Detalle técnico: {type(e).__name__}: {e}")
             return
         self.esc = esc
-        self.desactualizado = False
+        self._marcar_desactualizado(False)
         self._mostrar()
-        self.avisar(f"Calculado {esc.kendall}." + ("" if esc.estable else " Sistema inestable."))
+        self.avisar(f"Cálculo listo: {esc.kendall}." + ("" if esc.estable else " Sistema inestable."))
 
     def _mostrar(self):
         """Dibuja el escenario vigente en todas las vistas con la presentación elegida."""
         fmt = self._formateador()
         try:
-            self.resumen.mostrar(self.esc, fmt)
-            self.p_resultados.mostrar(self.esc, fmt)
-            self.p_probabilidades.mostrar(self.esc, fmt)
-            self.p_costos.mostrar(self.esc, fmt)
-            self.p_comparacion.mostrar(self.esc, fmt)
-            self.p_graficas.mostrar(cs.contexto_graficas(self.esc, self.panel.get("ut")))
-            self.formulas.actualizar(self.esc, fmt, self.desactualizado)
+            self.area.mostrar(self.esc, fmt, cs.contexto_graficas(self.esc, self.panel.get("ut")))
+            self.formulas.actualizar(self.esc, fmt)
         except Exception as e:
             traceback.print_exc()
             self._sin_resultados("Ocurrió un error inesperado al mostrar los resultados.")
             QMessageBox.critical(self, "Error inesperado", f"Detalle técnico: {type(e).__name__}: {e}")
             return
-        if self.desactualizado:
-            self.resumen.marcar_desactualizado(True)
-        self.panel.habilitar_exportar(not self.desactualizado)
+        self._marcar_desactualizado(self.desactualizado)
 
     def _sin_resultados(self, mensaje):
         """Retira todos los resultados anteriores para que no se confundan con los actuales."""
         self.esc = None
-        self.desactualizado = False
-        self.resumen.limpiar(mensaje)
-        for pag in (self.p_resultados, self.p_probabilidades, self.p_costos):
-            pag.limpiar("Sin resultados. Corrige los datos y pulsa «Calcular».")
-        self.p_comparacion.limpiar("Sin resultados.")
-        self.p_graficas.limpiar("Sin resultados para graficar.")
+        self.area.limpiar(mensaje)
         self.formulas.cerrar()
-        self.panel.habilitar_exportar(False)
+        self._marcar_desactualizado(False)
         self.avisar("Sin resultados vigentes.")
 
     def _datos_cambiaron(self):
         if self.esc is not None and not self.desactualizado:
-            self.desactualizado = True
-            self.resumen.marcar_desactualizado(True)
-            self.formulas.actualizar(self.esc, self._formateador(), True)
-            self.panel.habilitar_exportar(False)
-            self.avisar("Parámetros modificados: pulsa «Calcular» (Enter o F5) para actualizar.")
+            self._marcar_desactualizado(True)
 
     def _presentacion_cambio(self):
         if self.esc is not None:
@@ -224,24 +188,14 @@ class VentanaPrincipal(QMainWindow):
             total = sum(self.divisor.sizes())
             izq = self.divisor.sizes()[0]
             ancho = max(self.formulas.minimumWidth(), 380)
-            # Si el centro queda angosto ceden espacio, hasta su mínimo, el panel de entradas
-            # y luego el de fórmulas
-            falta = CENTRO_COMODO - (total - izq - ancho)
-            if falta > 0:
-                cede = min(falta, izq - self.panel.minimumWidth())
-                izq, falta = izq - cede, falta - cede
-            if falta > 0:
-                ancho = max(self.formulas.minimumWidth(), ancho - falta)
             self.divisor.setSizes([izq, total - izq - ancho, ancho])
-        self.formulas.mostrar(self.esc, clave, self._formateador(), self.desactualizado)
-        self.resumen.marcar_activa(clave)
+        self.formulas.mostrar(self.esc, clave, self._formateador())
+        self.p_resultados.tarjetas.marcar_activa(clave)
 
     def alternar_tema(self):
         tema.aplicar(QApplication.instance(), "oscuro" if tema.actual() == "claro" else "claro")
         self.barra.actualizar_tema()
-        self.resumen.actualizar_tema()
-        for pag in (self.p_resultados, self.p_probabilidades, self.p_costos, self.p_comparacion, self.p_graficas):
-            pag.repintar()
+        self.area.repintar()
         self.formulas.repintar()
 
     # ------------------------------------------------------------------
@@ -250,11 +204,8 @@ class VentanaPrincipal(QMainWindow):
     def exportar_csv(self):
         if self.esc is None or self.desactualizado:
             return
-        esc = self.esc
         try:
-            # Orden de la exportación original: Resultados, Probabilidades, Por día, Costos, Variando k y M
-            tablas = (self.p_resultados.tablas_para_exportar(esc) + self.p_probabilidades.tablas_para_exportar(esc)
-                      + self.p_costos.tablas_para_exportar(esc) + self.p_comparacion.tablas_para_exportar())
+            tablas = self.area.tablas_para_exportar(self.esc)
         except ErrorEntrada as e:
             QMessageBox.warning(self, "No se puede exportar", e.errores[0][1])
             return

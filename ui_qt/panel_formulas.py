@@ -73,7 +73,6 @@ class PanelFormulas(QFrame):
         self.setMinimumWidth(ANCHO_MIN)
         self.clave = None
         self._esc = self._fmt = None
-        self._desactualizado = False
         self._imagenes = []
 
         lay = QVBoxLayout(self)
@@ -100,9 +99,9 @@ class PanelFormulas(QFrame):
         lay.addWidget(self.scroll, 1)
 
     # ------------------------------------------------------------------
-    def mostrar(self, esc, clave, fmt, desactualizado=False):
+    def mostrar(self, esc, clave, fmt):
         """Pide la fórmula al servicio con el escenario dado y la dibuja (reemplaza el contenido)."""
-        self.clave, self._esc, self._fmt, self._desactualizado = clave, esc, fmt, desactualizado
+        self.clave, self._esc, self._fmt = clave, esc, fmt
         self._imagenes = []
         cuerpo = QWidget()
         cuerpo.setObjectName("CuerpoFormulas")
@@ -114,10 +113,6 @@ class PanelFormulas(QFrame):
         except fm.FormulaNoDisponible as e:
             lc.addWidget(_texto(str(e), "nota"))
         else:
-            if desactualizado:
-                aviso = _texto("Los parámetros cambiaron: esta fórmula usa los datos del último cálculo.", "mensaje")
-                aviso.setProperty("nivel", "info")
-                lc.addWidget(aviso)
             lc.addWidget(_texto(f"{esc.kendall} · {esc.sigla}", "nota"))
             self._agregar(lc, f, principal=True)
             for extra in f.extras:
@@ -126,14 +121,14 @@ class PanelFormulas(QFrame):
         self.scroll.setWidget(cuerpo)        # QScrollArea elimina el contenido anterior
         self._ajustar_imagenes()
 
-    def actualizar(self, esc, fmt, desactualizado=False):
+    def actualizar(self, esc, fmt):
         """Vuelve a generar la fórmula abierta (nuevo cálculo, presentación o tema)."""
         if self.clave and self.isVisible() and esc is not None:
-            self.mostrar(esc, self.clave, fmt, desactualizado)
+            self.mostrar(esc, self.clave, fmt)
 
     def repintar(self):
         if self._esc is not None:
-            self.actualizar(self._esc, self._fmt, self._desactualizado)
+            self.actualizar(self._esc, self._fmt)
 
     def cerrar(self):
         self.clave = None

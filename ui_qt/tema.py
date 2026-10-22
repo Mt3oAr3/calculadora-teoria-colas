@@ -24,6 +24,8 @@ PALETAS = {
         "info": "#2f6fde", "info_fondo": "#e6eefc",
         "fila_cumple": "#e1f3e7", "fila_mejor": "#fff1c7", "fila_principal": "#f2f6fd",
         "sombra": "#1c233126",
+        "advertencia_fondo": "#fff3dc", "advertencia_borde": "#e8a33d", "advertencia_texto": "#6b3c00",
+        "advertencia_boton": "#c77a12", "advertencia_boton_hover": "#a96509", "advertencia_boton_texto": "#ffffff",
     },
     "oscuro": {
         "fondo": "#13161c", "superficie": "#1b1f27", "superficie_alt": "#20252e",
@@ -37,11 +39,26 @@ PALETAS = {
         "info": "#79a3f3", "info_fondo": "#1d2942",
         "fila_cumple": "#183224", "fila_mejor": "#3a3216", "fila_principal": "#1e2533",
         "sombra": "#00000099",
+        "advertencia_fondo": "#3a2a10", "advertencia_borde": "#c98a2e", "advertencia_texto": "#ffd391",
+        "advertencia_boton": "#e09a3a", "advertencia_boton_hover": "#f0b05a", "advertencia_boton_texto": "#1f1400",
     },
 }
 NOMBRES = {"claro": "Tema claro", "oscuro": "Tema oscuro"}
 FUENTE = "Segoe UI"
 TAM_FUENTE = 10
+
+# Medidas de layout (px) usadas por los componentes: ningún tamaño suelto por el código.
+LAYOUT = {
+    # Tarjetas de indicadores: ancho mínimo por tarjeta para usar la versión normal o la compacta
+    "tarjeta_ancho_normal": 168, "tarjeta_ancho_compacta": 112, "tarjetas_espacio": 10,
+    "tarjeta_margen": (14, 10, 14, 12), "tarjeta_margen_compacta": (10, 6, 10, 8),
+    "tarjeta_sombra": 18,
+    # Banner global de datos desactualizados
+    "banner_alto": 46, "banner_ms": 160, "banner_margen": (16, 0, 12, 0),
+    "pagina_margen": (0, 12, 0, 12),
+    # Márgenes del área de resultados y de la barra superior
+    "area_margen": (16, 12, 16, 0), "barra_superior_margen": (16, 6, 12, 6),
+}
 
 _actual = "claro"
 
@@ -71,14 +88,34 @@ QToolTip { background: $superficie; color: $texto; border: 1px solid $borde_fuer
 QSplitter::handle { background: $fondo; }
 QSplitter::handle:hover { background: $borde; }
 
-/* Barra lateral */
-#BarraLateral { background: $lateral; border-right: 1px solid $borde; }
-#Marca { font-size: 13pt; font-weight: 600; color: $texto; }
+/* Barra superior */
+#BarraSuperior { background: $lateral; border-bottom: 1px solid $borde; }
+#Marca { font-size: 11pt; font-weight: 600; color: $texto; }
 #MarcaSub { color: $texto_3; font-size: 9pt; }
-#Navegacion { background: transparent; border: none; outline: 0; }
-#Navegacion::item { padding: 9px 12px; margin: 2px 0; border-radius: 8px; color: $texto_2; }
-#Navegacion::item:hover { background: $superficie_hover; color: $texto; }
-#Navegacion::item:selected { background: $acento_suave; color: $acento; font-weight: 600; }
+
+/* Banner global: datos cambiados sin recalcular */
+#Banner { background: $advertencia_fondo; border-bottom: 1px solid $advertencia_borde; }
+#Banner QLabel { color: $advertencia_texto; background: transparent; }
+QLabel#BannerIcono { font-weight: 700; }
+QLabel#BannerTexto { font-weight: 600; }
+QPushButton#BannerBoton {
+    background: $advertencia_boton; color: $advertencia_boton_texto; border: none; font-weight: 600;
+    padding: 5px 14px;
+}
+QPushButton#BannerBoton:hover { background: $advertencia_boton_hover; }
+
+/* Pestañas */
+#AreaResultados { background: $fondo; }
+QTabWidget::pane { border: none; border-top: 1px solid $borde; background: $fondo; top: -1px; }
+QTabWidget::tab-bar { left: 0; }
+QTabBar { background: transparent; }
+QTabBar::tab {
+    background: transparent; color: $texto_2; border: none; border-bottom: 2px solid transparent;
+    padding: 8px 14px; margin-right: 4px;
+}
+QTabBar::tab:hover { color: $texto; border-bottom: 2px solid $borde_fuerte; }
+QTabBar::tab:selected { color: $acento; font-weight: 600; border-bottom: 2px solid $acento; }
+#PaginaScroll, #PaginaScroll > QWidget > QWidget { background: $fondo; border: none; }
 
 /* Panel de entradas */
 #PanelEntradas { background: $superficie; border-right: 1px solid $borde; }
@@ -161,6 +198,13 @@ QLabel[rol="mensaje"][nivel="info"] { background: $info_fondo; color: $info; }
 QLabel#TarjetaSimbolo { color: $acento; font-weight: 700; font-size: 10pt; }
 QLabel#TarjetaNombre { color: $texto_3; font-size: 9pt; }
 QLabel#TarjetaValor { font-size: 15pt; font-weight: 600; }
+#Tarjeta[compacta="true"] QLabel#TarjetaSimbolo { font-size: 9pt; }
+#Tarjeta[compacta="true"] QLabel#TarjetaNombre { font-size: 8pt; }
+#Tarjeta[compacta="true"] QLabel#TarjetaValor { font-size: 12pt; }
+QLabel[rol="nota_vacia"] {
+    background: $superficie_alt; color: $texto_2; border: 1px dashed $borde_fuerte; border-radius: 8px;
+    padding: 8px 12px;
+}
 #Tarjeta[vigente="false"] QLabel#TarjetaValor { color: $texto_3; }
 
 /* Tablas */
