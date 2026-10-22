@@ -26,6 +26,7 @@ PALETAS = {
         "sombra": "#1c233126",
         "advertencia_fondo": "#fff3dc", "advertencia_borde": "#e8a33d", "advertencia_texto": "#6b3c00",
         "advertencia_boton": "#c77a12", "advertencia_boton_hover": "#a96509", "advertencia_boton_texto": "#ffffff",
+        "formula_fondo": "#f4f7fd", "formula_borde": "#cfdaf0", "resultado_fondo": "#e9f0fd",
     },
     "oscuro": {
         "fondo": "#13161c", "superficie": "#1b1f27", "superficie_alt": "#20252e",
@@ -41,6 +42,7 @@ PALETAS = {
         "sombra": "#00000099",
         "advertencia_fondo": "#3a2a10", "advertencia_borde": "#c98a2e", "advertencia_texto": "#ffd391",
         "advertencia_boton": "#e09a3a", "advertencia_boton_hover": "#f0b05a", "advertencia_boton_texto": "#1f1400",
+        "formula_fondo": "#182031", "formula_borde": "#2d3b58", "resultado_fondo": "#1d2a45",
     },
 }
 NOMBRES = {"claro": "Tema claro", "oscuro": "Tema oscuro"}
@@ -58,6 +60,19 @@ LAYOUT = {
     "pagina_margen": (0, 12, 0, 12),
     # Márgenes del área de resultados y de la barra superior
     "area_margen": (16, 12, 16, 0), "barra_superior_margen": (16, 6, 12, 6),
+    # Panel superpuesto «Cómo se calculó»
+    "drawer_fraccion": 0.40, "drawer_min": 360, "drawer_max": 620, "drawer_ms": 180, "drawer_sombra": 28,
+    "drawer_margen": 18, "drawer_espacio": 14,
+    # Ecuaciones: tamaño en puntos (normal y mínimo antes de desplazar en horizontal)
+    "formula_puntos": 17, "formula_puntos_min": 11, "caja_formula_margen": (16, 12, 16, 14),
+    "caja_formula_espacio": 10,
+    # Formulario de parámetros
+    "form_espacio_v": 4, "form_espacio_h": 12, "form_separacion_campos": 6,
+    "form_margen_cabecera": (16, 14, 16, 8), "form_margen_cuerpo": (12, 6, 12, 12),
+    "seccion_margen": (12, 10, 12, 12), "form_ancho_campo": 72, "form_ancho_unidad": 80,
+    "form_relleno_combo": 44,
+    # Tablas
+    "tabla_alto_fila": 30, "tabla_relleno_celda": 16, "tabla_relleno_vertical": 12, "tabla_ancho_min_texto": 140, "tabla_ancho_max": 420,
 }
 
 _actual = "claro"
@@ -121,6 +136,8 @@ QTabBar::tab:selected { color: $acento; font-weight: 600; border-bottom: 2px sol
 #PanelEntradas { background: $superficie; border-right: 1px solid $borde; }
 #PanelEntradas QScrollArea, #PanelEntradas #CuerpoEntradas { background: $superficie; border: none; }
 #Acciones { background: $superficie; border-top: 1px solid $borde; }
+#CabeceraEntradas { background: $superficie; border-bottom: 1px solid transparent; }
+#CabeceraEntradas[desplazado="true"] { border-bottom: 1px solid $borde_fuerte; }
 #CabeceraSeccion { background: transparent; border: none; text-align: left; padding: 8px 4px;
                    font-weight: 600; color: $texto; }
 #CabeceraSeccion:hover { color: $acento; }
@@ -222,11 +239,14 @@ QTableCornerButton::section { background: $superficie_alt; border: none; }
 QLabel[rol="vacio"] { color: $texto_3; padding: 24px; }
 
 /* Panel de fórmulas */
-#PanelFormulas { background: $superficie; border-left: 1px solid $borde; }
+#PanelFormulas { background: $superficie; border-left: 1px solid $borde_fuerte; }
 #ScrollFormulas, #CuerpoFormulas { background: $superficie; border: none; }
 QLabel#FormulaTitulo { font-size: 13pt; font-weight: 600; }
-QLabel#FormulaResultado { font-size: 15pt; font-weight: 700; color: $acento; }
-#CajaFormula { background: $superficie_alt; border: 1px solid $borde; border-radius: 10px; }
+QLabel#FormulaResultado { font-size: 20pt; font-weight: 700; color: $acento; }
+QLabel#FormulaResultadoExtra { font-size: 12pt; font-weight: 600; color: $acento; }
+#CajaResultado { background: $resultado_fondo; border-radius: 10px; }
+#CajaResultado QLabel { background: transparent; }
+#CajaFormula { background: $formula_fondo; border: 1px solid $formula_borde; border-radius: 10px; }
 #CajaFormula QLabel { background: transparent; }
 #FilaFormula, #FilaFormula QWidget { background: transparent; border: none; }
 QFrame[rol="separador"] { background: $borde; border: none; max-height: 1px; min-height: 1px; }

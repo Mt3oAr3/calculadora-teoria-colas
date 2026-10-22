@@ -1,24 +1,23 @@
 """
 panel_formulas.py
-Panel lateral «Cómo se calculó»: título, explicación, fórmula dibujada con
-matplotlib, la misma fórmula con los valores actuales y el resultado.
+Panel «Cómo se calculó»: drawer flotante anclado al borde derecho del área de
+resultados. Se superpone al contenido (no cambia su ancho), tiene sombra, se abre
+y se cierra deslizándose, y se cierra con su botón, con Esc o con un clic fuera.
 
-No guarda fórmulas: cada vez que se muestra la pide a services.formulas con el
-escenario vigente (al hacer clic, al recalcular o al cambiar presentación/tema).
+Muestra título, explicación, la fórmula dibujada con matplotlib, la misma fórmula
+con los valores actuales y el resultado. No guarda fórmulas: cada vez la pide a
+services.formulas con el escenario vigente.
 """
-from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import (QFrame, QHBoxLayout, QLabel, QPushButton, QScrollArea, QSizePolicy, QVBoxLayout,
-                               QWidget)
+from PySide6.QtCore import QEasingCurve, QEvent, QPoint, QPropertyAnimation, QRect, Qt, Signal
+from PySide6.QtWidgets import (QApplication, QFrame, QGraphicsDropShadowEffect, QHBoxLayout, QLabel, QPushButton,
+                               QScrollArea, QSizePolicy, QVBoxLayout, QWidget)
 
 from services import formulas as fm
 
 from . import tema
-from .render_formula import PUNTOS, formula_a_pixmap
+from .render_formula import formula_a_pixmap
 
-ANCHO_MIN = 320
-PUNTOS_MIN = 9           # por debajo de esto la fórmula se desplaza en horizontal en vez de achicarse
-MARGEN = 16
-MARGEN_CAJA = 12
+L = tema.LAYOUT
 
 
 def _texto(txt, rol=None, nombre=None):
@@ -33,7 +32,7 @@ def _texto(txt, rol=None, nombre=None):
 
 
 class ImagenFormula(QScrollArea):
-    """Fórmula dibujada; se achica hasta PUNTOS_MIN para caber y, si aún no cabe, se desplaza."""
+    """Ecuación centrada; se achica hasta formula_puntos_min para caber y, si aún no cabe, se desplaza."""
 
     def __init__(self, latex):
         super().__init__()
@@ -43,6 +42,7 @@ class ImagenFormula(QScrollArea):
         self.img = QLabel()
         self.setWidget(self.img)
         self.setWidgetResizable(False)
+        self.setAlignment(Qt.AlignCenter)
         self.setFrameShape(QFrame.NoFrame)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
@@ -54,14 +54,16 @@ class ImagenFormula(QScrollArea):
         self._ancho = ancho
         escala = self.devicePixelRatioF() or 1.0
         color = tema.color("texto")
-        pix = formula_a_pixmap(self.latex, color, escala, PUNTOS)
+        normal = L["formula_puntos"]
+        pix = formula_a_pixmap(self.latex, color, escala, normal)
         w = pix.deviceIndependentSize().width()
         if w > ancho:
-            pix = formula_a_pixmap(self.latex, color, escala, max(PUNTOS_MIN, PUNTOS * ancho / w * 0.97))
+            pix = formula_a_pixmap(self.latex, color, escala, max(L["formula_puntos_min"], normal * ancho / w * 0.97))
         self.img.setPixmap(pix)
         self.img.adjustSize()
         rebalsa = pix.deviceIndependentSize().width() > ancho
-        self.setFixedHeight(self.img.height() + (12 if rebalsa else 2))
+        barra = self.horizontalScrollBar().sizeHint().height() if rebalsa else 0
+        self.setFixedHeight(self.img.height() + barra + 2)
 
 
 class PanelFormulas(QFrame):
@@ -70,25 +72,35 @@ class PanelFormulas(QFrame):
     def __init__(self, padre=None):
         super().__init__(padre)
         self.setObjectName("PanelFormulas")
-        self.setMinimumWidth(ANCHO_MIN)
+        self.setAttribute(Qt.WA_StyledBackground, True)
         self.clave = None
+        self.abierto = False
         self._esc = self._fmt = None
         self._imagenes = []
+        self._area = None
+
+        self.sombra = QGraphicsDropShadowEffect(self)
+        self.sombra.setBlurRadius(L["drawer_sombra"])
+        self.sombra.setOffset(-4, 0)
+        self.setGraphicsEffect(self.sombra)
+        self._anim = QPropertyAnimation(self, b"pos", self)
+        self._anim.setDuration(L["drawer_ms"])
+        self._anim.setEasingCurve(QEasingCurve.OutCubic)
+        self._anim.finished.connect(self._fin_animacion)
 
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(0)
         cab = QHBoxLayout()
-        cab.setContentsMargins(MARGEN, 12, 8, 6)
+        cab.setContentsMargins(L["drawer_margen"], 12, 10, 6)
         titulo = QLabel("Cómo se calculó")
         titulo.setProperty("rol", "titulo")
         cab.addWidget(titulo, 1)
-        cerrar = QPushButton("✕")
-        cerrar.setObjectName("Plano")
-        cerrar.setToolTip("Cerrar el panel (Esc)")
-        cerrar.setCursor(Qt.PointingHandCursor)
-        cerrar.clicked.connect(self.cerrar)
-        cab.addWidget(cerrar, 0, Qt.AlignTop)
+        self.btn_cerrar = QPushButton("✕  Cerrar")
+        self.btn_cerrar.setToolTip("Cerrar el panel (Esc o clic fuera)")
+        self.btn_cerrar.setCursor(Qt.PointingHandCursor)
+        self.btn_cerrar.clicked.connect(self.cerrar)
+        cab.addWidget(self.btn_cerrar, 0, Qt.AlignTop)
         lay.addLayout(cab)
 
         self.scroll = QScrollArea()
@@ -97,7 +109,86 @@ class PanelFormulas(QFrame):
         self.scroll.setFrameShape(QFrame.NoFrame)
         self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         lay.addWidget(self.scroll, 1)
+        self.hide()
 
+    # ------------------------------------------------------------------
+    # Anclaje, apertura y cierre
+    # ------------------------------------------------------------------
+    def anclar(self, area):
+        """Superpone el panel al borde derecho de `area` (sin entrar en su layout)."""
+        self._area = area
+        self.setParent(area)
+        area.redimensionada.connect(self._reacomodar)
+        QApplication.instance().aboutToQuit.connect(self._soltar_filtro)
+        self.hide()
+
+    def _reacomodar(self):
+        if self.isVisible():
+            self._anim.stop()
+            self.setGeometry(self._geometria(self.abierto))
+            self._ajustar_imagenes()
+
+    def _soltar_filtro(self):
+        QApplication.instance().removeEventFilter(self)
+
+    def _geometria(self, abierto):
+        a = self._area.rect()
+        ancho = int(min(L["drawer_max"], max(L["drawer_min"], a.width() * L["drawer_fraccion"])))
+        ancho = min(ancho, a.width())
+        x = a.width() - ancho if abierto else a.width()
+        return QRect(x, 0, ancho, a.height())
+
+    def abrir(self, esc, clave, fmt):
+        if not self.abierto:
+            self.abierto = True
+            self.sombra.setColor(tema.qcolor("sombra"))
+            self.setGeometry(self._geometria(False))
+            self.show()
+            self.raise_()
+            self._animar(self._geometria(True).topLeft())
+            QApplication.instance().installEventFilter(self)
+        self.mostrar(esc, clave, fmt)
+
+    def cerrar(self):
+        if not self.abierto:
+            return
+        self.abierto = False
+        self.clave = None
+        self._soltar_filtro()
+        self._animar(self._geometria(False).topLeft())
+        self.cerrado.emit()
+
+    def _animar(self, destino):
+        self._anim.stop()
+        self._anim.setStartValue(self.pos())
+        self._anim.setEndValue(QPoint(destino))
+        self._anim.start()
+
+    def _fin_animacion(self):
+        if not self.abierto:
+            self.hide()
+
+    def eventFilter(self, obj, evento):
+        """Filtro de la aplicación, activo solo con el panel abierto: un clic fuera lo cierra."""
+        if evento.type() == QEvent.MouseButtonPress and self.abierto and isinstance(obj, QWidget):
+            if not self._dentro(evento.globalPosition().toPoint()) and not self._abre_formula(obj):
+                self.cerrar()
+        return False
+
+    def _dentro(self, punto_global):
+        return self.rect().contains(self.mapFromGlobal(punto_global))
+
+    @staticmethod
+    def _abre_formula(widget):
+        """Clic en una tarjeta o tabla con fórmulas: cambia la fórmula en vez de cerrar."""
+        while widget is not None:
+            if widget.property("abre_formula"):
+                return True
+            widget = widget.parentWidget()
+        return False
+
+    # ------------------------------------------------------------------
+    # Contenido
     # ------------------------------------------------------------------
     def mostrar(self, esc, clave, fmt):
         """Pide la fórmula al servicio con el escenario dado y la dibuja (reemplaza el contenido)."""
@@ -106,8 +197,8 @@ class PanelFormulas(QFrame):
         cuerpo = QWidget()
         cuerpo.setObjectName("CuerpoFormulas")
         lc = QVBoxLayout(cuerpo)
-        lc.setContentsMargins(MARGEN, 4, MARGEN, MARGEN)
-        lc.setSpacing(10)
+        lc.setContentsMargins(L["drawer_margen"], 4, L["drawer_margen"], L["drawer_margen"])
+        lc.setSpacing(L["drawer_espacio"])
         try:
             f = fm.formula(esc, clave, fmt)
         except fm.FormulaNoDisponible as e:
@@ -123,19 +214,14 @@ class PanelFormulas(QFrame):
 
     def actualizar(self, esc, fmt):
         """Vuelve a generar la fórmula abierta (nuevo cálculo, presentación o tema)."""
-        if self.clave and self.isVisible() and esc is not None:
+        if self.clave and self.abierto and esc is not None:
             self.mostrar(esc, self.clave, fmt)
 
     def repintar(self):
+        self.sombra.setColor(tema.qcolor("sombra"))
         if self._esc is not None:
             self.actualizar(self._esc, self._fmt)
 
-    def cerrar(self):
-        self.clave = None
-        self.hide()
-        self.cerrado.emit()
-
-    # ------------------------------------------------------------------
     def _agregar(self, lc, f, principal):
         if principal:
             lc.addWidget(_texto(f.titulo, nombre="FormulaTitulo"))
@@ -147,21 +233,25 @@ class PanelFormulas(QFrame):
             lc.addWidget(_texto(f.titulo, "seccion"))
         lc.addWidget(self._caja("Fórmula", [f.latex]))
         lc.addWidget(self._caja("Con los datos actuales", list(f.pasos)))
-        fila = QHBoxLayout()
+        caja = QFrame()
+        if principal:
+            caja.setObjectName("CajaResultado")
+        fila = QHBoxLayout(caja)
+        fila.setContentsMargins(*(L["caja_formula_margen"] if principal else (0, 0, 0, 0)))
         lbl = QLabel("Resultado")
         lbl.setProperty("rol", "campo")
         fila.addWidget(lbl)
-        res = _texto(self._fmt.texto(f.resultado), nombre="FormulaResultado" if principal else None)
+        res = _texto(self._fmt.texto(f.resultado), nombre="FormulaResultado" if principal else "FormulaResultadoExtra")
         res.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         fila.addWidget(res, 1)
-        lc.addLayout(fila)
+        lc.addWidget(caja)
 
     def _caja(self, titulo, formulas):
         caja = QFrame()
         caja.setObjectName("CajaFormula")
         lay = QVBoxLayout(caja)
-        lay.setContentsMargins(MARGEN_CAJA, 8, MARGEN_CAJA, 10)
-        lay.setSpacing(6)
+        lay.setContentsMargins(*L["caja_formula_margen"])
+        lay.setSpacing(L["caja_formula_espacio"])
         lay.addWidget(_texto(titulo, "nota"))
         for latex in formulas:
             img = ImagenFormula(latex)
@@ -170,10 +260,8 @@ class PanelFormulas(QFrame):
         return caja
 
     def _ajustar_imagenes(self):
-        ancho = self.width() - 2 * MARGEN - 2 * MARGEN_CAJA - 14     # bordes y barra vertical
+        m = L["caja_formula_margen"]
+        barra = self.scroll.verticalScrollBar().sizeHint().width()
+        ancho = self.width() - 2 * L["drawer_margen"] - m[0] - m[2] - barra - 2
         for img in self._imagenes:
             img.ajustar(ancho)
-
-    def resizeEvent(self, e):
-        super().resizeEvent(e)
-        self._ajustar_imagenes()

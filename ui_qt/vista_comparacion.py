@@ -4,7 +4,7 @@ Página «Comparar k y M»: condición de búsqueda, leyenda de colores y las
 tablas en función de k y de M (calculadas en comparacion_service).
 """
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import (QComboBox, QHBoxLayout, QLabel, QLineEdit, QPushButton, QSplitter, QVBoxLayout,
+from PySide6.QtWidgets import (QComboBox, QHBoxLayout, QLabel, QLineEdit, QPushButton, QVBoxLayout,
                                QWidget)
 
 from domain.errores import ErrorEntrada
@@ -91,13 +91,11 @@ class PaginaComparacion(QWidget):
         leyenda.addWidget(nota, 1)
         lay.addLayout(leyenda)
 
-        div = QSplitter(Qt.Vertical)
-        div.setChildrenCollapsible(False)
         self.tabla_k = VistaTabla("En función de k", ordenable=True, filas_min=3)
         self.tabla_M = VistaTabla("En función de M", ordenable=True, filas_min=3)
-        div.addWidget(self.tabla_k)
-        div.addWidget(self.tabla_M)
-        lay.addWidget(div, 1)
+        lay.addWidget(self.tabla_k)
+        lay.addWidget(self.tabla_M)
+        lay.addStretch(1)
 
     def mostrar(self, esc, fmt):
         self.esc, self.fmt = esc, fmt

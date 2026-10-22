@@ -3,12 +3,12 @@ vista_costos.py
 Página «Costos y por día»: costos e ingresos diarios y semanales, y la
 operación diaria (horas en cada estado, clientes por día, totales de S sistemas).
 """
-from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import QLabel, QSplitter, QVBoxLayout, QWidget
+from PySide6.QtCore import Signal
+from PySide6.QtWidgets import QLabel, QVBoxLayout, QWidget
 
 from services import calculadora_service as cs
 
-from .vista_tabla import VistaTabla, ajustar_alto, encabezado_pagina
+from .vista_tabla import VistaTabla, encabezado_pagina
 
 NOTA_SIN_COSTOS = ("No has ingresado costos. Completa «Costos e ingresos» en el panel de parámetros "
                    "y pulsa Calcular.")
@@ -38,20 +38,17 @@ class PaginaCostos(QWidget):
         self.nota.setWordWrap(True)
         self.nota.hide()
         lay.addWidget(self.nota)
-        div = QSplitter(Qt.Vertical)
-        div.setChildrenCollapsible(False)
+        # Las dos tablas apiladas en el único scroll de la pestaña
         self.tabla_cost = VistaTabla("Costos e ingresos", filas_min=4)
         self.tabla_dia = VistaTabla("Operación diaria", filas_min=4)
         for t in (self.tabla_cost, self.tabla_dia):
             t.fila_clicada.connect(self.fila_clicada.emit)
-            div.addWidget(t)
-        div.setStretchFactor(1, 1)
-        lay.addWidget(div, 1)
+            lay.addWidget(t)
+        lay.addStretch(1)
 
     def mostrar(self, esc, fmt):
         self.nota.setVisible(sin_costos(esc))
         self.tabla_cost.mostrar(cs.tabla_costos(esc), fmt)
-        ajustar_alto(self.tabla_cost)
         self.tabla_dia.mostrar(cs.tabla_por_dia(esc), fmt)
 
     def tablas_para_exportar(self, esc):

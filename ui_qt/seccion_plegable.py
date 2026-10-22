@@ -6,6 +6,10 @@ El contenido es una rejilla de 3 columnas: etiqueta | entrada | unidad.
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QFrame, QGridLayout, QPushButton, QVBoxLayout, QWidget
 
+from . import tema
+
+L = tema.LAYOUT
+
 FLECHA = {True: "▾", False: "▸"}
 
 
@@ -27,9 +31,9 @@ class SeccionPlegable(QWidget):
         self.cuerpo = QFrame()
         self.cuerpo.setObjectName("CuerpoSeccion")
         self.rejilla = QGridLayout(self.cuerpo)
-        self.rejilla.setContentsMargins(12, 10, 12, 10)
-        self.rejilla.setHorizontalSpacing(8)
-        self.rejilla.setVerticalSpacing(4)
+        self.rejilla.setContentsMargins(*L["seccion_margen"])
+        self.rejilla.setHorizontalSpacing(L["form_espacio_h"])     # aire entre campo y unidad
+        self.rejilla.setVerticalSpacing(L["form_espacio_v"])
         self.rejilla.setColumnStretch(1, 1)
         lay.addWidget(self.cuerpo)
         self.fila = 0                 # próxima fila libre de la rejilla
@@ -48,3 +52,9 @@ class SeccionPlegable(QWidget):
 
     def siguiente(self):
         self.fila += 1
+
+    def separar(self):
+        """Aire extra antes de un nuevo campo (no entre un campo y su ayuda)."""
+        if self.fila > 0:
+            self.rejilla.setRowMinimumHeight(self.fila, L["form_separacion_campos"])
+            self.fila += 1

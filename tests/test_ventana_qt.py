@@ -26,6 +26,13 @@ class TestVentanaQt(unittest.TestCase):
         cls.v.show()
         sp.procesar()
 
+    @classmethod
+    def tearDownClass(cls):
+        cls.v.formulas.cerrar()
+        cls.v.close()
+        cls.v.deleteLater()
+        cls.sp.procesar()
+
     def setUp(self):
         self.v.formulas.cerrar()
         self.v.panel.restablecer()
@@ -75,6 +82,51 @@ class TestVentanaQt(unittest.TestCase):
         finally:
             self.v.resize(tam)
             self.sp.procesar()
+
+    def _abrir_formula(self, clave="Lq"):
+        self.v.mostrar_formula(clave)
+        self.sp.esperar(400)
+        self.assertTrue(self.v.formulas.abierto and self.v.formulas.isVisible())
+
+    def test_panel_no_cambia_el_ancho_de_la_tabla(self):
+        tabla = self.v.p_resultados.tabla.vista
+        tarjetas = self.v.p_resultados.tarjetas
+        antes = (tabla.width(), [tabla.columnWidth(c) for c in range(tabla.model().columnCount())],
+                 tarjetas.width())
+        self._abrir_formula()
+        despues = (tabla.width(), [tabla.columnWidth(c) for c in range(tabla.model().columnCount())],
+                   tarjetas.width())
+        self.assertEqual(antes, despues)
+        # superpuesto al borde derecho del área de resultados, con ancho ≈ 40 %
+        area = self.v.area
+        geo = self.v.formulas.geometry()
+        self.assertEqual(geo.right(), area.rect().right())
+        self.assertLessEqual(abs(geo.width() - 0.40 * area.width()), 0.05 * area.width() + 1)
+
+    def test_esc_cierra_el_panel(self):
+        self._abrir_formula()
+        self.v.activateWindow()
+        self.sp.tecla(self.v, "Escape")
+        self.sp.esperar(400)
+        self.assertFalse(self.v.formulas.abierto or self.v.formulas.isVisible())
+
+    def test_clic_fuera_cierra_y_seleccion_resaltada(self):
+        self._abrir_formula("Pw")
+        activa = [t.clave for t in self.v.p_resultados.tarjetas.tarjetas if t.property("activa") == "true"]
+        self.assertEqual(activa, ["Pw"])
+        self.sp.clic(self.v.panel.secciones["modelo"].cabecera)       # clic fuera del panel
+        self.sp.esperar(400)
+        self.assertFalse(self.v.formulas.abierto)
+        activa = [t for t in self.v.p_resultados.tarjetas.tarjetas if t.property("activa") == "true"]
+        self.assertEqual(activa, [])
+
+    def test_sin_aviso_dentro_del_panel(self):
+        self._abrir_formula()
+        self.v.panel.poner("k", "2")
+        self.sp.esperar(300)
+        textos = " ".join(w.text() for w in self.v.formulas.findChildren(type(self.v.estado)))
+        self.assertNotIn("cambiaron", textos)
+        self.assertNotIn("desactualiz", textos.lower())
 
     def test_nota_sin_costos(self):
         nota = self.v.p_costos.nota

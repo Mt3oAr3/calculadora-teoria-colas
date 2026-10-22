@@ -74,17 +74,18 @@ class VentanaPrincipal(QMainWindow):
         self.p_resultados, self.p_probabilidades = self.area.resultados, self.area.probabilidades
         self.p_costos, self.p_comparacion, self.p_graficas = self.area.costos, self.area.comparacion, self.area.graficas
 
+        # Panel «Cómo se calculó»: superpuesto al área de resultados, no ocupa lugar en el layout
         self.formulas = PanelFormulas()
+        self.formulas.anclar(self.area)
         self.formulas.cerrado.connect(lambda: self.p_resultados.tarjetas.marcar_activa(None))
-        self.formulas.hide()
 
         self.divisor = QSplitter(Qt.Horizontal)
         self.divisor.setChildrenCollapsible(False)
         self.divisor.setHandleWidth(4)
-        for w in (self.panel, self.area, self.formulas):
+        for w in (self.panel, self.area):
             self.divisor.addWidget(w)
         self.divisor.setStretchFactor(1, 1)
-        self.divisor.setSizes([360, 1100, 380])
+        self.divisor.setSizes([self.panel.minimumWidth(), TAMANO_INICIAL[0]])
 
         raiz = QWidget()
         lay = QVBoxLayout(raiz)
@@ -183,13 +184,7 @@ class VentanaPrincipal(QMainWindow):
     def mostrar_formula(self, clave):
         if self.esc is None:
             return
-        if not self.formulas.isVisible():
-            self.formulas.show()
-            total = sum(self.divisor.sizes())
-            izq = self.divisor.sizes()[0]
-            ancho = max(self.formulas.minimumWidth(), 380)
-            self.divisor.setSizes([izq, total - izq - ancho, ancho])
-        self.formulas.mostrar(self.esc, clave, self._formateador())
+        self.formulas.abrir(self.esc, clave, self._formateador())
         self.p_resultados.tarjetas.marcar_activa(clave)
 
     def alternar_tema(self):

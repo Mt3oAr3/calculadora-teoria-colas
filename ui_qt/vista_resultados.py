@@ -29,7 +29,8 @@ class PaginaResultados(QWidget):
                                  "definida para el modelo. Haz clic en una tarjeta o fila para ver cómo se calculó."))
         self.tabla = VistaTabla(filas_min=8)
         self.tabla.fila_clicada.connect(self.fila_clicada.emit)
-        lay.addWidget(self.tabla, 1)
+        lay.addWidget(self.tabla)
+        lay.addStretch(1)
 
     def mostrar(self, esc, fmt):
         self.tarjetas.mostrar(esc, fmt)

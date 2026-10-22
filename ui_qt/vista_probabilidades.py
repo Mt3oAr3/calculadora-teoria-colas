@@ -4,7 +4,7 @@ Página «Probabilidades»: P(n = a), rangos [a, b], probabilidades de la cola y
 la distribución completa (ordenable).
 """
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import QHBoxLayout, QLabel, QLineEdit, QPushButton, QSplitter, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QHBoxLayout, QLabel, QLineEdit, QPushButton, QVBoxLayout, QWidget
 
 from domain.errores import ErrorEntrada
 from services import calculadora_service as cs
@@ -55,16 +55,13 @@ class PaginaProbabilidades(QWidget):
         self.lbl_err.hide()
         lay.addWidget(self.lbl_err)
 
-        div = QSplitter(Qt.Vertical)
-        div.setChildrenCollapsible(False)
         self.tabla_prob = VistaTabla("Para a y b", filas_min=4)
         self.tabla_dist = VistaTabla("Distribución completa  (fila en negrita: n = k; clic en el encabezado "
                                      "para ordenar)", ordenable=True, filas_min=4)
         for t in (self.tabla_prob, self.tabla_dist):
             t.fila_clicada.connect(self.fila_clicada.emit)
-            div.addWidget(t)
-        div.setSizes([380, 320])
-        lay.addWidget(div, 1)
+            lay.addWidget(t)
+        lay.addStretch(1)
 
     def mostrar(self, esc, fmt):
         self.esc, self.fmt = esc, fmt

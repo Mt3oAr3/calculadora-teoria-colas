@@ -17,6 +17,8 @@ from services import calculadora_service as cs
 from . import tema
 from .seccion_plegable import SeccionPlegable
 
+L = tema.LAYOUT
+
 # Campos que solo cambian la presentación (no exigen recalcular)
 CAMPOS_PRESENTACION = ("ut", "dec")
 
@@ -59,9 +61,12 @@ class PanelEntradas(QWidget):
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(0)
 
-        cab = QWidget()
+        # Cabecera fija; una línea bajo ella indica que la lista se desplazó
+        self.cabecera = cab = QWidget()
+        cab.setObjectName("CabeceraEntradas")
+        cab.setAttribute(Qt.WA_StyledBackground, True)
         lc = QVBoxLayout(cab)
-        lc.setContentsMargins(16, 14, 16, 6)
+        lc.setContentsMargins(*L["form_margen_cabecera"])
         lc.addWidget(etiqueta("Parámetros", "titulo"))
         lc.addWidget(etiqueta("Enter calcula · los tiempos y tasas se convierten a «por hora».", "nota", True))
         lay.addWidget(cab)
@@ -73,7 +78,7 @@ class PanelEntradas(QWidget):
         cuerpo = QWidget()
         cuerpo.setObjectName("CuerpoEntradas")
         self._cuerpo = QVBoxLayout(cuerpo)
-        self._cuerpo.setContentsMargins(12, 0, 12, 12)
+        self._cuerpo.setContentsMargins(*L["form_margen_cuerpo"])
         self._cuerpo.setSpacing(2)
         self._grupo_modelo()
         self._grupo_llegadas_servicio()
@@ -83,6 +88,7 @@ class PanelEntradas(QWidget):
         self._grupo_presentacion()
         self._cuerpo.addStretch(1)
         self.scroll.setWidget(cuerpo)
+        self.scroll.verticalScrollBar().valueChanged.connect(self._desplazado)
         lay.addWidget(self.scroll, 1)
         # Nunca más angosto que el formulario: sin barra horizontal, nada se corta
         self.setMinimumWidth(cuerpo.minimumSizeHint().width() + self.scroll.verticalScrollBar().sizeHint().width())
@@ -103,20 +109,24 @@ class PanelEntradas(QWidget):
 
     def _campo(self, s, clave, texto, unidad="", ayuda="", opciones=None, unidad_combo=None):
         """Fila: etiqueta | entrada o lista | unidad. Debajo: ayuda y error (oculto)."""
+        s.separar()
         lbl = etiqueta(texto, "campo")
         s.agregar(lbl, 0, 1)
         if opciones is not None:
             w = _combo(opciones)
+            # Las listas de opciones (no las de unidad) muestran siempre su texto completo
+            mas_larga = max(w.fontMetrics().horizontalAdvance(o) for o in opciones)
+            w.setMinimumWidth(mas_larga + L["form_relleno_combo"])
         else:
             w = QLineEdit()
             w.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
             w.returnPressed.connect(self.calcular.emit)
-        w.setMinimumWidth(72)
+            w.setMinimumWidth(L["form_ancho_campo"])
         sin_unidad = opciones is not None and not unidad and unidad_combo is None
         s.agregar(w, 1, 2 if sin_unidad else 1)
         if unidad_combo is not None:
             c = _combo(unidad_combo[1])
-            c.setMinimumWidth(80)
+            c.setMinimumWidth(L["form_ancho_unidad"])
             self.widgets[unidad_combo[0]] = c
             s.agregar(c, 2, 1)
         elif unidad:
@@ -134,7 +144,14 @@ class PanelEntradas(QWidget):
         self.widgets[clave], self.etiquetas[clave], self.errores[clave] = w, lbl, err
         return w
 
+    def _desplazado(self, valor):
+        desplazado = "true" if valor > 0 else "false"
+        if self.cabecera.property("desplazado") != desplazado:
+            self.cabecera.setProperty("desplazado", desplazado)
+            tema.refrescar(self.cabecera)
+
     def _subtitulo(self, s, texto):
+        s.separar()
         lbl = etiqueta(texto, "subgrupo")
         s.agregar(lbl)
         s.siguiente()

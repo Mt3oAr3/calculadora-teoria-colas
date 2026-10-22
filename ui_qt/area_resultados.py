@@ -36,6 +36,7 @@ def _desplazable(pagina):
 class AreaResultados(QWidget):
     fila_clicada = Signal(str)        # tarjeta o fila con fórmula
     aviso = Signal(str)               # mensajes para la barra de estado
+    redimensionada = Signal()         # el panel superpuesto se reacomoda
 
     def __init__(self, unidad_tiempo, padre=None):
         super().__init__(padre)
@@ -66,6 +67,10 @@ class AreaResultados(QWidget):
         for i, nombre in enumerate(PESTANAS):
             self.pestanas.setTabToolTip(i, f"{nombre}  (Ctrl+{i + 1})")
         lay.addWidget(self.pestanas, 1)
+
+    def resizeEvent(self, e):
+        super().resizeEvent(e)
+        self.redimensionada.emit()
 
     def ir_a(self, indice):
         self.pestanas.setCurrentIndex(indice)

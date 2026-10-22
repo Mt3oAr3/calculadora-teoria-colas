@@ -41,10 +41,12 @@ Supuestos relevantes:
 - Exportación de tablas a CSV y de gráficas a PNG (una o todas).
 - **Sistemas idénticos S:** varios sistemas iguales e independientes (p. ej. 2 cajas, cada
   una con su cola); costos y totales se suman.
-- **Interfaz moderna (PySide6):** tema claro y oscuro, navegación lateral, secciones
-  plegables, tarjetas de indicadores, tablas ordenables y el panel **«Cómo se calculó»**:
-  al hacer clic en una tarjeta o en una fila se muestra la fórmula del modelo (dibujada con
-  mathtext de matplotlib), la misma fórmula con los datos actuales y el resultado.
+- **Interfaz moderna (PySide6):** tema claro y oscuro, pestañas de resultados, secciones
+  plegables, tarjetas de indicadores (en la pestaña Resultados), tablas ordenables sin
+  textos cortados, un único aviso ámbar cuando los datos cambiaron sin recalcular y el panel
+  superpuesto **«Cómo se calculó»**: al hacer clic en una tarjeta o en una fila se muestra la
+  fórmula del modelo (dibujada con mathtext de matplotlib), la misma fórmula con los datos
+  actuales y el resultado.
 
 ## Requisitos e instalación
 
@@ -60,8 +62,8 @@ Supuestos relevantes:
     python main_qt.py --oscuro   interfaz moderna, tema oscuro
     python main.py               interfaz clásica (Tkinter)
 
-Atajos de la interfaz moderna: Enter o F5 calcula, Ctrl+1…5 cambia de página, Ctrl+T
-alterna el tema y Esc cierra el panel «Cómo se calculó».
+Atajos de la interfaz moderna: Enter o F5 calcula, Ctrl+1…5 cambia de pestaña, Ctrl+T
+alterna el tema y Esc (o un clic fuera) cierra el panel «Cómo se calculó».
 
 ## Ejecutar las pruebas
 
@@ -100,21 +102,25 @@ calculadora_colas/
 ├── ui_qt/                       Interfaz PySide6 (única capa que importa Qt)
 │   ├── app.py                   QApplication y arranque
 │   ├── ventana_principal.py     Ventana, flujo de cálculo, exportación y tema
-│   ├── barra_lateral.py         Navegación y botón de tema
+│   ├── barra_superior.py        Nombre de la app y botón de tema
+│   ├── banner_desactualizado.py Único aviso de datos desactualizados (ámbar, con «Calcular»)
+│   ├── area_resultados.py       Encabezado del modelo y pestañas (un scroll por pestaña)
+│   ├── encabezado_modelo.py     Kendall, estado y mensaje de estabilidad
 │   ├── panel_entradas.py        Formulario en secciones plegables, errores por campo
 │   ├── seccion_plegable.py      Sección plegable del formulario
-│   ├── tarjetas.py              Resumen del modelo y tarjetas de indicadores
+│   ├── tarjetas.py              Tarjetas de indicadores (una fila, compactas o filas parejas)
 │   ├── modelo_tabla.py          Adaptador Qt de Tabla (colores, orden por valor crudo)
 │   ├── vista_tabla.py           Tabla reutilizable con mensaje de vacío
 │   ├── vista_resultados.py  vista_probabilidades.py  vista_costos.py
 │   ├── vista_comparacion.py     Comparar k y M
 │   ├── vista_graficas.py        Gráficas incrustadas (FigureCanvasQTAgg)
-│   ├── panel_formulas.py        Panel «Cómo se calculó»
+│   ├── panel_formulas.py        Panel superpuesto «Cómo se calculó»
+│   ├── soporte_pruebas.py       Ayudas para probar la ventana sin pantalla (offscreen)
 │   ├── render_formula.py        mathtext -> QPixmap (backend Agg)
 │   └── tema.py                  Paletas claro/oscuro y hoja de estilos QSS
 └── tests/                       Pruebas automatizadas (unittest)
     ├── datos/referencia_original.json
-    ├── test_modelos.py  test_unidades.py  test_costos.py  test_formulas.py
+    ├── test_modelos.py  test_unidades.py  test_costos.py  test_formulas.py  test_ventana_qt.py
     ├── test_servicios.py  test_comparaciones.py  test_arquitectura.py
 ```
 

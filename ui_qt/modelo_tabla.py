@@ -74,8 +74,9 @@ class ModeloTabla(QAbstractTableModel):
             return None
         if rol == Qt.ToolTipRole:
             txt = self._textos[ix.row()][ix.column()]
+            # Texto completo como respaldo, más la pista si la fila tiene fórmula
             pista = "\nClic para ver cómo se calculó." if fila.clave else ""
-            return (txt + pista) if (len(txt) > 28 or pista) else None
+            return (txt + pista) if (txt or pista) else None
         if rol == ROL_ORDEN:
             return self._orden(fila.celdas[ix.column()], ix.column())
         if rol == ROL_CLAVE:
