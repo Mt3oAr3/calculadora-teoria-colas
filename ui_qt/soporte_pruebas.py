@@ -16,7 +16,7 @@ def aplicacion():
     if sys.platform == "win32" and os.path.isdir(fuentes):
         os.environ.setdefault("QT_QPA_FONTDIR", fuentes)
     import matplotlib
-    matplotlib.use("QtAgg")
+    matplotlib.use("Agg")
     from PySide6.QtWidgets import QApplication
     return QApplication.instance() or QApplication([])
 
@@ -96,3 +96,37 @@ def ordenar(vista, columna, descendente=True):
 def sin_orden(vista):
     from PySide6.QtCore import Qt
     vista.horizontalHeader().setSortIndicator(-1, Qt.AscendingOrder)
+
+
+# ----------------------------------------------------------------------
+# Ventanas de nivel superior
+# ----------------------------------------------------------------------
+def espiar_ventanas():
+    """Registra cada widget de nivel superior que se MUESTRA (aunque sea un instante).
+
+    Devuelve un objeto con .mostradas (lista de widgets) y .detener().
+    """
+    from PySide6.QtCore import QEvent, QObject
+    from PySide6.QtWidgets import QApplication, QWidget
+
+    class _Espia(QObject):
+        def __init__(self):
+            super().__init__()
+            self.mostradas = []
+
+        def eventFilter(self, obj, ev):
+            if ev.type() == QEvent.Show and isinstance(obj, QWidget) and obj.isWindow():
+                self.mostradas.append(obj)
+            return False
+
+        def detener(self):
+            QApplication.instance().removeEventFilter(self)
+
+    espia = _Espia()
+    QApplication.instance().installEventFilter(espia)
+    return espia
+
+
+def ventanas_visibles():
+    from PySide6.QtWidgets import QApplication
+    return [w for w in QApplication.topLevelWidgets() if w.isVisible()]

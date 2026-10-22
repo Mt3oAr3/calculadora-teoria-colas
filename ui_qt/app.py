@@ -5,7 +5,9 @@ Crea la QApplication y abre la ventana principal (ver main_qt.py).
 import sys
 
 import matplotlib
-matplotlib.use("QtAgg")
+# Sin pyplot: las figuras se crean con matplotlib.figure.Figure y se muestran con FigureCanvasQTAgg
+# explícito. El backend «Agg» (sin ventanas) garantiza que nada abra ventanas propias de matplotlib.
+matplotlib.use("Agg")
 
 from PySide6.QtWidgets import QApplication  # noqa: E402
 

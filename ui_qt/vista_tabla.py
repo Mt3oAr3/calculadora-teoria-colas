@@ -68,7 +68,7 @@ class VistaTabla(QFrame):
 
         self.modelo = ModeloTabla(self)
         self.proxy = ProxyOrdenable(self.modelo, self) if ordenable else None
-        self.vista = _Tabla()
+        self.vista = _Tabla(self)          # con padre desde el inicio: nunca es ventana propia
         self.vista.setModel(self.proxy or self.modelo)
         self.vista.setAlternatingRowColors(True)
         self.vista.setSelectionBehavior(QAbstractItemView.SelectRows)
@@ -96,15 +96,17 @@ class VistaTabla(QFrame):
         self.vista.redimensionada.connect(self._ajustar)
         (self.proxy or self.modelo).layoutChanged.connect(self._ajustar_alto)
 
-        self.vacio = QLabel("")
+        self.vacio = QLabel("", self)
         self.vacio.setProperty("rol", "vacio")
         self.vacio.setAlignment(Qt.AlignCenter)
         self.vacio.setWordWrap(True)
         self.vacio.setMinimumHeight(L["tabla_alto_fila"] * filas_min)
+        # El QStackedLayout muestra/oculta sus widgets al agregarlos: se instala en el bloque ANTES de
+        # recibirlos; si no, el widget sin padre aparece un instante como ventana de nivel superior.
         self.pila = QStackedLayout()
+        lay.addLayout(self.pila)
         self.pila.addWidget(self.vista)
         self.pila.addWidget(self.vacio)
-        lay.addLayout(self.pila)
         self._naturales = []
         self._ancho_previo = None
         self._ajustando = False
