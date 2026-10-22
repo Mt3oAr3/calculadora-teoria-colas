@@ -41,13 +41,14 @@ GRAFICAS = [
 CATEGORIAS = ["Probabilidades", "Tiempos", "Costos"]
 _POR_ID = {g.gid: g for g in GRAFICAS}
 
-# Paleta categórica (ranuras 1-3, validadas para daltonismo) y tintas neutras.
-SERIE = ["#2a78d6", "#eb6834", "#1baf7a"]
-TINTA = "#1f2430"
-TINTA_2 = "#52514e"
-TINTA_3 = "#8a8a85"
-REJILLA = "#e4e4e0"
-FONDO = "#fcfcfb"
+# Paleta de la marca: rojo y verde para las dos primeras series, negro/grises para el resto
+# (las series también se distinguen por el marcador: o, s, D).
+SERIE = ["#ea0f02", "#00841d", "#3d3d3d"]
+TINTA = "#000000"
+TINTA_2 = "#4d4d4d"
+TINTA_3 = "#8c8c8c"
+REJILLA = "#e6e6e6"
+FONDO = "#ffffff"
 
 
 def grafica(gid):

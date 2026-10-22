@@ -21,7 +21,7 @@ class BannerDesactualizado(QFrame):
         self.setAccessibleName("Aviso de datos desactualizados")
         lay = QHBoxLayout(self)
         lay.setContentsMargins(*tema.LAYOUT["banner_margen"])
-        icono = QLabel("⚠")
+        icono = QLabel(tema.ICONOS["aviso"])
         icono.setObjectName("BannerIcono")
         texto = QLabel(TEXTO)
         texto.setObjectName("BannerTexto")

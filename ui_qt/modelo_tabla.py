@@ -16,8 +16,9 @@ from . import tema
 ROL_ORDEN = Qt.UserRole          # valor crudo para ordenar
 ROL_CLAVE = Qt.UserRole + 1      # clave de la fórmula de la fila (o None)
 
-# Prioridad de los fondos: el de «menor costo» gana al de «cumple».
-FONDOS = (("mejor", "fila_mejor"), ("ok", "fila_cumple"), ("principal", "fila_principal"))
+# Prioridad de los fondos: el de «menor costo» gana al de «cumple». Las filas «principales» solo van
+# en negrita: así se sigue viendo el sombreado alterno.
+FONDOS = (("mejor", "fila_mejor"), ("ok", "fila_cumple"))
 
 
 class ModeloTabla(QAbstractTableModel):

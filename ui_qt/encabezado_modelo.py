@@ -11,7 +11,7 @@ from services import calculadora_service as cs
 
 from . import tema
 
-TEXTO_INSIGNIA = {"ok": "● Estable", "aviso": "● Inestable", "error": "● Sin resultados"}
+TEXTO_INSIGNIA = {"ok": "Estable", "aviso": "Inestable", "error": "Sin resultados"}
 
 
 class EncabezadoModelo(QWidget):
@@ -43,8 +43,10 @@ class EncabezadoModelo(QWidget):
         for w in (self.insignia, self.mensaje):
             w.setProperty("nivel", nivel)
             tema.refrescar(w)
-        self.insignia.setText(TEXTO_INSIGNIA[nivel])
-        self.mensaje.setText(texto)
+        # Icono + texto: el estado nunca se comunica solo con color
+        icono = tema.ICONOS[nivel]
+        self.insignia.setText(f"{icono} {TEXTO_INSIGNIA[nivel]}")
+        self.mensaje.setText(f"{icono}  {texto}")
 
     def mostrar(self, esc, fmt):
         self.lbl_modelo.setText(esc.kendall)

@@ -232,8 +232,10 @@ class PanelEntradas(QWidget):
         self.btn_calcular.setCursor(Qt.PointingHandCursor)
         self.btn_calcular.clicked.connect(self.calcular.emit)
         self.btn_exportar = QPushButton("Exportar CSV")
+        self.btn_exportar.setObjectName("Secundario")
         self.btn_exportar.clicked.connect(self.exportar.emit)
         btn_ini = QPushButton("Valores iniciales")
+        btn_ini.setObjectName("Secundario")
         btn_ini.clicked.connect(lambda: self.restablecer())
         g.addWidget(self.btn_calcular, 0, 0, 1, 2)
         g.addWidget(self.btn_exportar, 1, 0)
@@ -346,7 +348,7 @@ class PanelEntradas(QWidget):
                 w.setProperty("error", True)
                 tema.refrescar(w)
             if clave in self.errores:
-                self.errores[clave].setText(mensaje)
+                self.errores[clave].setText(f"{tema.ICONOS['error']}  {mensaje}")
                 self.errores[clave].show()
             primero = primero or w
         if primero is not None:

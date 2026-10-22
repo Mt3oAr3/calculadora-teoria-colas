@@ -106,8 +106,11 @@ class VentanaPrincipal(QMainWindow):
         for i in range(len(PESTANAS)):
             QShortcut(QKeySequence(f"Ctrl+{i + 1}"), self, lambda i=i: self.area.ir_a(i))
 
-    def avisar(self, texto):
-        self.estado.setText(texto)
+    def avisar(self, texto, nivel=""):
+        """Mensaje en la barra de estado; nivel="ok" lo muestra como éxito (verde, con icono)."""
+        self.estado.setText(f"{tema.ICONOS['ok']}  {texto}" if nivel == "ok" else texto)
+        self.estado.setProperty("nivel", nivel)
+        tema.refrescar(self.estado)
 
     def _formateador(self):
         H = self.esc.p.H if self.esc else 8.0
@@ -147,7 +150,10 @@ class VentanaPrincipal(QMainWindow):
         self.esc = esc
         self._marcar_desactualizado(False)
         self._mostrar()
-        self.avisar(f"Cálculo listo: {esc.kendall}." + ("" if esc.estable else " Sistema inestable."))
+        if esc.estable:
+            self.avisar(f"Cálculo listo: {esc.kendall}.", "ok")
+        else:
+            self.avisar(f"Cálculo listo: {esc.kendall}. Sistema inestable.")
 
     def _mostrar(self):
         """Dibuja el escenario vigente en todas las vistas con la presentación elegida."""
