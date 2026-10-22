@@ -26,6 +26,8 @@ class PaginaGraficas(QWidget):
         super().__init__(padre)
         self.setObjectName("Pagina")
         self.ctx = None
+        self._mensaje = None
+        self._pendiente = False
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(10)
@@ -126,33 +128,54 @@ class PaginaGraficas(QWidget):
 
     def mostrar(self, ctx):
         self.ctx = ctx
-        for g in gc.GRAFICAS:
-            aplica = ctx["finita"] or not g.por_M
-            self.items[g.gid].setForeground(0, tema.qcolor("texto" if aplica else "texto_3"))
+        self._mensaje = None
+        self._colorear_indice()
         self.lbl_no_aplica.setVisible(not ctx["finita"])
         self._habilitar(True)
         self.dibujar()
 
+    def _colorear_indice(self):
+        for g in gc.GRAFICAS:
+            aplica = self.ctx is None or self.ctx["finita"] or not g.por_M
+            self.items[g.gid].setForeground(0, tema.qcolor("texto" if aplica else "texto_3"))
+
     def dibujar(self):
-        if self.ctx is None:
+        """Dibuja la gráfica elegida con los colores del tema vigente (o la deja pendiente si no se ve)."""
+        if not self.isVisible():
+            self._pendiente = True           # se dibuja al abrir la pestaña (showEvent)
             return
-        self.ctx["mostrar_valores"] = self.chk_valores.isChecked()
-        gc.dibujar(self.fig, self._gid(), self.ctx)
+        self._pendiente = False
+        if self.ctx is None:
+            gc.mensaje(self.fig, "", self._mensaje or "", {"colores": tema.colores_grafica()})
+        else:
+            self.ctx["mostrar_valores"] = self.chk_valores.isChecked()
+            self.ctx["colores"] = tema.colores_grafica()
+            gc.dibujar(self.fig, self._gid(), self.ctx)
         self.canvas.draw_idle()
 
     def limpiar(self, mensaje):
         self.ctx = None
+        self._mensaje = mensaje
         self._habilitar(False)
-        self.fig.clear()
-        self.fig.set_facecolor(gc.FONDO)
-        ax = self.fig.add_subplot(111)
-        ax.axis("off")
-        ax.text(0.5, 0.5, mensaje, ha="center", va="center", fontsize=11, color=gc.TINTA_2, wrap=True)
-        self.canvas.draw_idle()
+        self.dibujar()
 
     def repintar(self):
-        if self.ctx is not None:
-            self.mostrar(self.ctx)
+        """Cambio de tema: el índice se colorea ya; la figura, ahora si se ve o al abrir la pestaña."""
+        self._colorear_indice()
+        self.dibujar()
+
+    @property
+    def pendiente(self):
+        return self._pendiente
+
+    def showEvent(self, e):
+        super().showEvent(e)
+        if self._pendiente:
+            self.dibujar()
+
+    def _ctx_exportacion(self):
+        """Los PNG se guardan siempre con los colores claros de impresión, sea cual sea el tema."""
+        return {k: v for k, v in self.ctx.items() if k != "colores"}
 
     # ------------------------------------------------------------------
     def guardar_esta(self):
@@ -163,7 +186,7 @@ class PaginaGraficas(QWidget):
         if not ruta:
             return
         try:
-            ex.guardar_grafica(ruta, gid, self.ctx)
+            ex.guardar_grafica(ruta, gid, self._ctx_exportacion())
         except OSError as e:
             QMessageBox.critical(self, "No se pudo guardar", f"No se pudo guardar la gráfica:\n{e.strerror or e}")
             return
@@ -176,7 +199,7 @@ class PaginaGraficas(QWidget):
         if not carpeta:
             return
         try:
-            rutas = ex.guardar_todas(carpeta, self.ctx)
+            rutas = ex.guardar_todas(carpeta, self._ctx_exportacion())
         except OSError as e:
             QMessageBox.critical(self, "No se pudo guardar", f"No se pudieron guardar las gráficas:\n{e.strerror or e}")
             return

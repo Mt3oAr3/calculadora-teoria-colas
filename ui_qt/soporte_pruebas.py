@@ -130,3 +130,24 @@ def espiar_ventanas():
 def ventanas_visibles():
     from PySide6.QtWidgets import QApplication
     return [w for w in QApplication.topLevelWidgets() if w.isVisible()]
+
+
+# ----------------------------------------------------------------------
+# Colores reales en pantalla (para verificar el tema)
+# ----------------------------------------------------------------------
+def color_pixel(widget, x, y):
+    """Color #rrggbb del píxel (x, y) del widget tal como se pinta (incluye hojas de estilo)."""
+    imagen = widget.grab().toImage()
+    escala = imagen.devicePixelRatio() or 1.0
+    return imagen.pixelColor(int(x * escala), int(y * escala)).name()
+
+
+def color_texto(widget):
+    """Color #rrggbb con el que el widget pinta su texto (rol de primer plano de su paleta)."""
+    return widget.palette().color(widget.foregroundRole()).name()
+
+
+def color_figura(figura):
+    """Color #rrggbb del fondo de una matplotlib.figure.Figure."""
+    from matplotlib.colors import to_hex
+    return to_hex(figura.get_facecolor())

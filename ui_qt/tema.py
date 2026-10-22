@@ -44,6 +44,9 @@ PALETAS = {
         # Panel de fórmulas y sombras
         "formula_fondo": "#f7f7f7", "formula_borde": "#dcdcdc", "resultado_fondo": "#fde9e8",
         "sombra": "#00000026", "sombra_panel": "#00000038",
+        # Gráficas (matplotlib): fondo, ejes, rejilla y series
+        "grafica_fondo": "#ffffff", "grafica_ejes": "#8c8c8c", "grafica_rejilla": "#e6e6e6",
+        "serie_1": ROJO_MARCA, "serie_2": VERDE_MARCA, "serie_3": "#3d3d3d",
     },
     "oscuro": {
         "primario": ROJO_MARCA, "primario_hover": "#ff3a2d", "primario_presionado": "#c90d02",
@@ -64,6 +67,8 @@ PALETAS = {
         "info_fondo": "#1e1e1e", "info_borde": "#333333", "info_icono": "#4cc964", "info_icono_sobre": "#0b1f0f",
         "formula_fondo": "#1c1c1c", "formula_borde": "#353535", "resultado_fondo": "#3a1614",
         "sombra": "#00000099", "sombra_panel": "#000000a0",
+        "grafica_fondo": "#1a1a1a", "grafica_ejes": "#7a7a7a", "grafica_rejilla": "#2e2e2e",
+        "serie_1": "#ff4a3d", "serie_2": "#4cc964", "serie_3": "#c4c4c4",
     },
 }
 
@@ -103,6 +108,12 @@ PARES_CONTRASTE = [
     ("secundario_texto", "fila_mejor", 4.5, "texto verde de la fila de menor costo"),
     ("info_icono_sobre", "info_icono", 3.0, "letra «i» dentro del icono informativo"),
     ("texto_3", "fila_alterna", 4.5, "ceros atenuados en filas alternas"),
+    ("texto", "grafica_fondo", 4.5, "títulos de las gráficas"),
+    ("texto_2", "grafica_fondo", 4.5, "rótulos y valores de las gráficas"),
+    ("serie_1", "grafica_fondo", 3.0, "primera serie de las gráficas"),
+    ("serie_2", "grafica_fondo", 3.0, "segunda serie de las gráficas"),
+    ("serie_3", "grafica_fondo", 3.0, "tercera serie de las gráficas"),
+    ("grafica_ejes", "grafica_fondo", 3.0, "ejes de las gráficas"),
 ]
 
 NOMBRES = {"claro": "Tema claro", "oscuro": "Tema oscuro"}
@@ -161,6 +172,14 @@ def qcolor(rol):
     if len(h) == 9:
         c.setAlpha(int(h[7:], 16))
     return c
+
+
+def colores_grafica(nombre=None):
+    """Colores para visualization.graficas_colas.dibujar (ctx['colores']) en el tema vigente."""
+    p = PALETAS[nombre or _actual]
+    return {"fondo": p["grafica_fondo"], "tinta": p["texto"], "tinta_2": p["texto_2"],
+            "tinta_3": p["grafica_ejes"], "rejilla": p["grafica_rejilla"],
+            "serie": [p["serie_1"], p["serie_2"], p["serie_3"]]}
 
 
 def luminancia(hex_color):
@@ -400,12 +419,24 @@ def _paleta_qt(nombre):
 
 
 def aplicar(app: QApplication, nombre):
-    """Aplica el tema a toda la aplicación (los widgets se repintan solos)."""
+    """
+    Aplica el tema a toda la aplicación en un solo paso: paleta + hoja de estilos, a nivel de
+    QApplication (nunca widget por widget). El estilo Fusion y la fuente se fijan una sola vez:
+    volver a ponerlos en cada cambio obligaba a Qt a repulir todos los widgets dos veces.
+    Quien llama debe suspender el repintado de la ventana mientras dura (ver VentanaPrincipal).
+    """
     global _actual
     _actual = nombre
-    app.setStyle("Fusion")
-    app.setFont(QFont(FUENTE, TAM_FUENTE))
+    if app.property("tema_base") != "listo":
+        app.setStyle("Fusion")
+        app.setFont(QFont(FUENTE, TAM_FUENTE))
+        app.setProperty("tema_base", "listo")
     app.setPalette(_paleta_qt(nombre))
+    # Medido: reemplazar una hoja de estilos por otra cuesta ~4 veces más (≈930 ms con ~570
+    # widgets) que vaciarla y aplicar la nueva (≈225 ms). Con el repintado suspendido por quien
+    # llama, el paso intermedio sin estilos no llega a verse.
+    if app.styleSheet():
+        app.setStyleSheet("")
     app.setStyleSheet(hoja_estilo(nombre))
 
 

@@ -41,6 +41,7 @@ class ImagenFormula(QScrollArea):
         self.setObjectName("FilaFormula")
         self.latex = latex
         self._ancho = None
+        self._color = None          # color de texto con que se dibujó (cambia con el tema)
         self.img = QLabel()
         self.setWidget(self.img)
         self.setWidgetResizable(False)
@@ -56,6 +57,7 @@ class ImagenFormula(QScrollArea):
         self._ancho = ancho
         escala = self.devicePixelRatioF() or 1.0
         color = tema.color("texto")
+        self._color = color
         normal = L["formula_puntos"]
         pix = formula_a_pixmap(self.latex, color, escala, normal)
         w = pix.deviceIndependentSize().width()

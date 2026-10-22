@@ -51,6 +51,19 @@ REJILLA = "#e6e6e6"
 FONDO = "#ffffff"
 
 
+def colores(ctx=None):
+    """
+    Colores de la figura. Por defecto, los de arriba (versión Tkinter, PNG exportados).
+    La interfaz Qt pasa ctx['colores'] con los tokens de su tema (claro u oscuro) y
+    sobrescribe solo las claves que indique: serie, tinta, tinta_2, tinta_3, rejilla, fondo.
+    """
+    c = {"serie": SERIE, "tinta": TINTA, "tinta_2": TINTA_2, "tinta_3": TINTA_3,
+         "rejilla": REJILLA, "fondo": FONDO}
+    if ctx and ctx.get("colores"):
+        c.update(ctx["colores"])
+    return c
+
+
 def grafica(gid):
     return _POR_ID[gid]
 
@@ -64,36 +77,45 @@ def _num(x, d):
     return f"{x:,.{d}f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
 
-def _etiquetar(ax, xs, ys, decimales=3, maximo=12):
+def _etiquetar(ax, xs, ys, c, decimales=3, maximo=12):
     """Rotula los valores solo si hay pocos puntos, para no saturar."""
     if len(xs) > maximo:
         return
     for x, y in zip(xs, ys):
         if math.isfinite(y):
             ax.annotate(_num(y, decimales), (x, y), textcoords="offset points",
-                        xytext=(0, 8), ha="center", fontsize=8, color=TINTA_2)
+                        xytext=(0, 8), ha="center", fontsize=8, color=c["tinta_2"])
 
 
-def _estilo_ejes(ax):
-    ax.set_facecolor(FONDO)
+def _estilo_ejes(ax, c):
+    ax.set_facecolor(c["fondo"])
     for lado in ("top", "right"):
         ax.spines[lado].set_visible(False)
     for lado in ("left", "bottom"):
-        ax.spines[lado].set_color(TINTA_3)
-    ax.tick_params(colors=TINTA_2, labelsize=9)
-    ax.grid(axis="y", color=REJILLA, linewidth=0.8)
+        ax.spines[lado].set_color(c["tinta_3"])
+    ax.tick_params(colors=c["tinta_2"], labelsize=9)
+    ax.grid(axis="y", color=c["rejilla"], linewidth=0.8)
     ax.set_axisbelow(True)
 
 
-def _mensaje(fig, ax, titulo, texto):
+def mensaje(fig, titulo, texto, ctx=None):
+    """Figura sin datos: solo un mensaje centrado (con los colores de ctx, si los trae)."""
+    c = colores(ctx)
+    fig.clear()
+    fig.set_facecolor(c["fondo"])
+    _mensaje(fig, fig.add_subplot(111), titulo, texto, c)
+
+
+def _mensaje(fig, ax, titulo, texto, c):
     ax.axis("off")
-    ax.text(0.5, 0.5, texto, ha="center", va="center", fontsize=11, color=TINTA_2)
-    fig.suptitle(titulo, fontsize=12, fontweight="bold", color=TINTA)
+    ax.text(0.5, 0.5, texto, ha="center", va="center", fontsize=11, color=c["tinta_2"], wrap=True)
+    if titulo:
+        fig.suptitle(titulo, fontsize=12, fontweight="bold", color=c["tinta"])
 
 
-def _linea(ax, xs, ys, color, etiqueta, marcador="o", ancho=2.0):
+def _linea(ax, xs, ys, color, etiqueta, c, marcador="o", ancho=2.0):
     ax.plot(xs, ys, marker=marcador, markersize=5, color=color, linewidth=ancho, label=etiqueta,
-            markeredgecolor=FONDO, markeredgewidth=1.2)
+            markeredgecolor=c["fondo"], markeredgewidth=1.2)
 
 
 def dibujar(fig, gid, ctx):
@@ -102,11 +124,13 @@ def dibujar(fig, gid, ctx):
       'finita': bool, 'barrido_k': [...], 'barrido_M': [...],
       'k': k actual, 'M': M actual, 'H': horas/día,
       'unidad_tiempo': 'minuto'|'hora'|'día', 'cfg': costos, 'subtitulo': str,
-      'mostrar_valores': bool (opcional, por defecto True)
+      'mostrar_valores': bool (opcional, por defecto True),
+      'colores': dict (opcional, ver colores())
     }
     """
+    c = colores(ctx)
     fig.clear()
-    fig.set_facecolor(FONDO)
+    fig.set_facecolor(c["fondo"])
     ax = fig.add_subplot(111)
     g = grafica(gid)
     titulo = g.titulo
@@ -114,15 +138,15 @@ def dibujar(fig, gid, ctx):
 
     if por_M and not ctx["finita"]:
         _mensaje(fig, ax, titulo, "Esta gráfica es solo para población finita (PFCS / PFCM).\n"
-                                  "Cambia la población a «Finita» e indica M.")
+                                  "Cambia la población a «Finita» e indica M.", c)
         return
 
     datos = [r for r in (ctx["barrido_M"] if por_M else ctx["barrido_k"]) if r.get("ok")]
     if not datos:
-        _mensaje(fig, ax, titulo, "No hay datos válidos para graficar.")
+        _mensaje(fig, ax, titulo, "No hay datos válidos para graficar.", c)
         return
 
-    _estilo_ejes(ax)
+    _estilo_ejes(ax, c)
     rotular = ctx.get("mostrar_valores", True)
     xs = [r["M"] if por_M else r["k"] for r in datos]
     x_act = ctx["M"] if por_M else ctx["k"]
@@ -134,53 +158,53 @@ def dibujar(fig, gid, ctx):
     if gid in ("P0_k", "Pesp_k", "Pesp_M", "Pno_k", "Pno_M"):
         clave = {"P0": "P0", "Pesp": "frac_espera", "Pno": "frac_no_espera"}[gid.split("_")[0]]
         ys = [_limpio(r[clave]) for r in datos]
-        _linea(ax, xs, ys, SERIE[0], None)
+        _linea(ax, xs, ys, c["serie"][0], None, c)
         if rotular:
-            _etiquetar(ax, xs, ys)
-        ax.set_ylabel("Probabilidad", color=TINTA_2)
+            _etiquetar(ax, xs, ys, c)
+        ax.set_ylabel("Probabilidad", color=c["tinta_2"])
         ax.set_ylim(0, 1.08)
     elif gid in ("Wq_k", "Wq_M", "W_k", "W_M"):
         clave = gid.split("_")[0]
         ys = [_limpio(r[clave]) * f_t for r in datos]
-        _linea(ax, xs, ys, SERIE[0], None)
+        _linea(ax, xs, ys, c["serie"][0], None, c)
         if rotular:
-            _etiquetar(ax, xs, ys)
+            _etiquetar(ax, xs, ys, c)
         nombre = "Tiempo en cola Wq" if clave == "Wq" else "Tiempo en el sistema W"
-        ax.set_ylabel(f"{nombre} ({ABREV[u]})", color=TINTA_2)
+        ax.set_ylabel(f"{nombre} ({ABREV[u]})", color=c["tinta_2"])
         ax.set_ylim(bottom=0)
     elif gid in ("Costo_k", "Costo_M"):
-        cs = [dc.costos(r, ctx["H"], ctx["cfg"]) for r in datos]
-        ct = [c["ct"] for c in cs]
+        cs = [dc.costos(r, ctx["H"], ctx["cfg"]) for r in datos]  # montos por punto
+        ct = [m["ct"] for m in cs]
         if not any(v > 0 for v in ct):
             _mensaje(fig, ax, titulo, "Ingresa los costos en el panel de parámetros\n"
-                                      "(grupo «Costos e ingresos») para ver esta gráfica.")
+                                      "(grupo «Costos e ingresos») para ver esta gráfica.", c)
             return
-        hay_ocio = any(c["ct_ocio"] for c in cs)
-        _linea(ax, xs, [c["ct"] for c in cs], SERIE[0], "CT costo total", "o", 2.4)
-        _linea(ax, xs, [c["ct_te"] + c["ct_ocio"] for c in cs], SERIE[1],
-               "CT(TE) tiempo de espera" + (" + ocio" if hay_ocio else ""), "s")
-        _linea(ax, xs, [c["ct_s"] for c in cs], SERIE[2], "CT(S) servidores", "D")
+        hay_ocio = any(m["ct_ocio"] for m in cs)
+        _linea(ax, xs, [m["ct"] for m in cs], c["serie"][0], "CT costo total", c, "o", 2.4)
+        _linea(ax, xs, [m["ct_te"] + m["ct_ocio"] for m in cs], c["serie"][1],
+               "CT(TE) tiempo de espera" + (" + ocio" if hay_ocio else ""), c, "s")
+        _linea(ax, xs, [m["ct_s"] for m in cs], c["serie"][2], "CT(S) servidores", c, "D")
         leyenda = True
         if not por_M:
             i = min(range(len(ct)), key=lambda j: ct[j])
-            ax.scatter([xs[i]], [ct[i]], s=150, facecolors="none", edgecolors=TINTA,
+            ax.scatter([xs[i]], [ct[i]], s=150, facecolors="none", edgecolors=c["tinta"],
                        linewidths=1.6, zorder=5, label=f"Mínimo CT en k = {xs[i]}")
             ax.annotate(f"$ {_num(ct[i], 2)}", (xs[i], ct[i]), textcoords="offset points",
-                        xytext=(0, -18), ha="center", fontsize=9, color=TINTA, fontweight="bold")
-        ax.set_ylabel("Costo por día ($)", color=TINTA_2)
+                        xytext=(0, -18), ha="center", fontsize=9, color=c["tinta"], fontweight="bold")
+        ax.set_ylabel("Costo por día ($)", color=c["tinta_2"])
         ax.set_ylim(bottom=0)
 
     if x_act in xs:
-        ax.axvline(x_act, linestyle="--", color=TINTA_3, linewidth=1.2, label=f"Valor actual = {x_act}")
+        ax.axvline(x_act, linestyle="--", color=c["tinta_3"], linewidth=1.2, label=f"Valor actual = {x_act}")
         leyenda = True
-    ax.set_xlabel(xlabel, color=TINTA_2)
+    ax.set_xlabel(xlabel, color=c["tinta_2"])
     if len(xs) <= 30:
         ax.set_xticks(xs)
     if leyenda:
         # Leyenda fuera del área de datos para no tapar las curvas
-        ax.legend(fontsize=9, loc="upper left", bbox_to_anchor=(1.01, 1.0), frameon=False, labelcolor=TINTA)
-    fig.suptitle(titulo, fontsize=12, fontweight="bold", color=TINTA)
+        ax.legend(fontsize=9, loc="upper left", bbox_to_anchor=(1.01, 1.0), frameon=False, labelcolor=c["tinta"])
+    fig.suptitle(titulo, fontsize=12, fontweight="bold", color=c["tinta"])
     if ctx.get("subtitulo"):
-        ax.set_title(ctx["subtitulo"], fontsize=9, color=TINTA_2)
+        ax.set_title(ctx["subtitulo"], fontsize=9, color=c["tinta_2"])
     if fig.get_layout_engine() is None:
         fig.tight_layout()

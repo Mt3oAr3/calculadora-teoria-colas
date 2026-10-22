@@ -32,6 +32,7 @@ from . import tema
 from .area_resultados import PESTANAS, AreaResultados
 from .banner_desactualizado import BannerDesactualizado
 from .barra_superior import BarraSuperior
+from .barra_titulo import aplicar_barra_titulo
 from .panel_entradas import PanelEntradas
 from .panel_formulas import PanelFormulas
 
@@ -53,6 +54,8 @@ class VentanaPrincipal(QMainWindow):
         self._construir()
         self._atajos()
         self.calcular()
+        # La barra de título nativa sigue al tema desde antes de mostrarse (sin destello claro)
+        aplicar_barra_titulo(self, tema.actual() == "oscuro")
 
     # ------------------------------------------------------------------
     def _construir(self):
@@ -195,10 +198,24 @@ class VentanaPrincipal(QMainWindow):
         self.p_resultados.tarjetas.marcar_activa(clave)
 
     def alternar_tema(self):
-        tema.aplicar(QApplication.instance(), "oscuro" if tema.actual() == "claro" else "claro")
-        self.barra.actualizar_tema()
-        self.area.repintar()
-        self.formulas.repintar()
+        self.aplicar_tema("oscuro" if tema.actual() == "claro" else "claro")
+
+    def aplicar_tema(self, nombre):
+        """
+        Cambia de tema en un solo paso visible: con el repintado de la ventana suspendido se aplican
+        paleta + QSS (a nivel de aplicación) y se regeneran lo que pinta con matplotlib (gráfica
+        visible y ecuaciones del panel abierto); al reactivar el repintado todo aparece a la vez.
+        """
+        self.setUpdatesEnabled(False)
+        try:
+            tema.aplicar(QApplication.instance(), nombre)
+            self.barra.actualizar_tema()
+            self.area.repintar()
+            self.formulas.repintar()
+        finally:
+            self.setUpdatesEnabled(True)
+        aplicar_barra_titulo(self, nombre == "oscuro")
+        self.update()
 
     # ------------------------------------------------------------------
     # Exportación
