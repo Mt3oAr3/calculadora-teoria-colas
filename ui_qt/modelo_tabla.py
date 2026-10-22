@@ -1,8 +1,10 @@
 """
 modelo_tabla.py
 Adaptador Qt de services.tablas.Tabla: el texto sale del mismo Formateador que
-usa la exportación CSV, y los colores de las filas (principal, cumple, menor
-costo, actual) salen del tema.
+usa la exportación CSV, y los colores de las filas (cumple, menor costo) salen del tema.
+
+Regla única de alineación (bandera numérica de Columna): columnas numéricas con encabezado
+y celdas a la derecha; columnas de texto con encabezado y celdas a la izquierda.
 """
 import math
 
@@ -29,6 +31,7 @@ class ModeloTabla(QAbstractTableModel):
         self._textos = []
         self._negrita = QFont()
         self._negrita.setBold(True)
+        self.atenuar_ceros = False     # montos en 0 en gris atenuado (tabla de costos)
 
     def mostrar(self, tabla, fmt):
         self.beginResetModel()
@@ -68,6 +71,12 @@ class ModeloTabla(QAbstractTableModel):
             return int(self._alineacion(ix.column()))
         if rol == Qt.FontRole and ("principal" in fila.etiquetas or "actual" in fila.etiquetas):
             return self._negrita
+        if rol == Qt.ForegroundRole:
+            if "mejor" in fila.etiquetas:
+                return tema.qcolor("secundario_texto")           # óptimo / menor costo en verde
+            if self.atenuar_ceros and self._es_cero(fila.celdas[ix.column()]):
+                return tema.qcolor("texto_3")
+            return None
         if rol == Qt.BackgroundRole:
             for etiqueta, color in FONDOS:
                 if etiqueta in fila.etiquetas:
@@ -83,6 +92,10 @@ class ModeloTabla(QAbstractTableModel):
         if rol == ROL_CLAVE:
             return fila.clave
         return None
+
+    @staticmethod
+    def _es_cero(celda):
+        return isinstance(celda, Valor) and celda.tipo == "dinero" and celda.dato == 0
 
     def _orden(self, celda, col):
         dato = celda.dato if isinstance(celda, Valor) else celda
@@ -108,3 +121,10 @@ class ProxyOrdenable(QSortFilterProxyModel):
         super().__init__(padre)
         self.setSourceModel(fuente)
         self.setSortRole(ROL_ORDEN)
+
+    def headerData(self, seccion, orientacion, rol=Qt.DisplayRole):
+        """El orden se indica con ↑/↓ DELANTE del título: el borde derecho de las cifras no se mueve."""
+        texto = super().headerData(seccion, orientacion, rol)
+        if rol == Qt.DisplayRole and orientacion == Qt.Horizontal and seccion == self.sortColumn() and texto:
+            return ("↑ " if self.sortOrder() == Qt.AscendingOrder else "↓ ") + texto
+        return texto

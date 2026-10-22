@@ -6,13 +6,14 @@ incrustada con FigureCanvasQTAgg y acciones para guardar PNG.
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg, NavigationToolbar2QT
 from matplotlib.figure import Figure
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import (QCheckBox, QFileDialog, QFrame, QHBoxLayout, QLabel, QMessageBox, QPushButton,
+from PySide6.QtWidgets import (QCheckBox, QFileDialog, QFrame, QHBoxLayout, QMessageBox, QPushButton,
                                QSplitter, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget)
 
 from services import exportacion_service as ex
 from visualization import graficas_colas as gc
 
 from . import tema
+from .info_box import InfoBox
 from .vista_tabla import encabezado_pagina
 
 ROL_GID = Qt.UserRole
@@ -98,9 +99,8 @@ class PaginaGraficas(QWidget):
         arriba.addWidget(self.chk_valores)
         ld.addLayout(arriba)
         ld.addWidget(self.canvas, 1)
-        self.lbl_no_aplica = QLabel("")
-        self.lbl_no_aplica.setProperty("rol", "nota")
-        self.lbl_no_aplica.setWordWrap(True)
+        self.lbl_no_aplica = InfoBox("Las gráficas «vs M» (en gris) solo aplican a población finita.")
+        self.lbl_no_aplica.hide()
         ld.addWidget(self.lbl_no_aplica)
         div.addWidget(der)
         div.setStretchFactor(1, 1)
@@ -129,8 +129,7 @@ class PaginaGraficas(QWidget):
         for g in gc.GRAFICAS:
             aplica = ctx["finita"] or not g.por_M
             self.items[g.gid].setForeground(0, tema.qcolor("texto" if aplica else "texto_3"))
-        self.lbl_no_aplica.setText("" if ctx["finita"] else
-                                   "Las gráficas «vs M» (en gris) solo aplican a población finita.")
+        self.lbl_no_aplica.setVisible(not ctx["finita"])
         self._habilitar(True)
         self.dibujar()
 

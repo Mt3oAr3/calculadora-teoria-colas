@@ -100,6 +100,7 @@ PARES_CONTRASTE = [
     ("primario", "fondo", 3.0, "botón principal sobre la ventana"),
     ("secundario_texto", "superficie_elevada", 3.0, "contorno de botones secundarios"),
     ("secundario_texto", "secundario_tinte", 4.5, "botón secundario con el cursor encima"),
+    ("secundario_texto", "fila_mejor", 4.5, "texto verde de la fila de menor costo"),
     ("info_icono_sobre", "info_icono", 3.0, "letra «i» dentro del icono informativo"),
     ("texto_3", "fila_alterna", 4.5, "ceros atenuados en filas alternas"),
 ]
@@ -118,13 +119,16 @@ LAYOUT = {
     "tarjeta_margen": (14, 10, 14, 12), "tarjeta_margen_compacta": (10, 6, 10, 8),
     "tarjeta_sombra": 18,
     # Banner global de datos desactualizados
-    "banner_alto": 46, "banner_ms": 160, "banner_margen": (16, 0, 12, 0),
+    "banner_ms": 160, "banner_margen": (16, 11, 16, 11), "banner_espacio": 14,
     "pagina_margen": (0, 12, 0, 12),
     # Márgenes del área de resultados y de la barra superior
     "area_margen": (16, 12, 16, 0), "barra_superior_margen": (16, 6, 12, 6),
     # Panel superpuesto «Cómo se calculó»
     "drawer_fraccion": 0.40, "drawer_min": 360, "drawer_max": 620, "drawer_ms": 180, "drawer_sombra": 28,
     "drawer_margen": 18, "drawer_espacio": 14,
+    # Cajas informativas y estado vacío
+    "info_margen": (12, 10, 14, 10), "info_espacio": 10, "info_icono": 18,
+    "vacio_margen": (24, 28, 24, 28), "vacio_espacio": 8, "vacio_icono": 40,
     # Ecuaciones: tamaño en puntos (normal y mínimo antes de desplazar en horizontal)
     "formula_puntos": 17, "formula_puntos_min": 11, "caja_formula_margen": (16, 12, 16, 14),
     "caja_formula_espacio": 10,
@@ -303,10 +307,6 @@ QLabel#TarjetaValor { font-size: 15pt; font-weight: 600; color: $texto; }
 #Tarjeta[compacta="true"] QLabel#TarjetaNombre { font-size: 8pt; }
 #Tarjeta[compacta="true"] QLabel#TarjetaValor { font-size: 12pt; }
 #Tarjeta[vigente="false"] QLabel#TarjetaValor { color: $texto_3; }
-QLabel[rol="nota_vacia"] {
-    background: $info_fondo; color: $texto_2; border: 1px dashed $borde_fuerte; border-radius: 8px;
-    padding: 8px 12px;
-}
 
 /* Tablas */
 #Bloque { background: $tabla_fondo; border: 1px solid $borde; border-radius: 12px; }
@@ -320,10 +320,26 @@ QHeaderView::section {
     padding: 7px 8px; font-weight: 600;
 }
 QTableCornerButton::section { background: $encabezado_tabla; border: none; }
+/* El orden se indica con ↑/↓ delante del título: la flecha nativa no ocupa lugar ni desalinea cifras */
+QHeaderView::up-arrow, QHeaderView::down-arrow { image: none; width: 0px; height: 0px; }
+
+/* Caja informativa (InfoBox) */
+#InfoBox { background: $info_fondo; border: 1px solid $info_borde; border-radius: 8px; }
+#InfoBox QLabel { background: transparent; }
+QLabel#InfoIcono {
+    background: $info_icono; color: $info_icono_sobre; border-radius: 9px; font-weight: 700; font-size: 9pt;
+}
+QLabel#InfoTexto { color: $texto; }
+
+/* Estado vacío (sin costos) */
+#EstadoVacio { background: transparent; }
+QLabel#VacioIcono { color: $texto_3; font-size: 26pt; }
+QLabel#VacioTitulo { font-size: 12pt; font-weight: 600; color: $texto; }
+QLabel#VacioTexto { color: $texto_2; }
 QLabel[rol="vacio"] { color: $texto_3; padding: 24px; }
 
 /* Panel de fórmulas */
-#PanelFormulas { background: $superficie_elevada; border-left: 1px solid $borde_fuerte; }
+#PanelFormulas { background: $superficie_elevada; border-left: 1px solid $borde; }
 #ScrollFormulas, #CuerpoFormulas { background: $superficie_elevada; border: none; }
 QLabel#FormulaTitulo { font-size: 13pt; font-weight: 600; }
 QLabel#FormulaResultado { font-size: 20pt; font-weight: 700; color: $primario_texto; }

@@ -70,6 +70,7 @@ class VentanaPrincipal(QMainWindow):
         self.area = AreaResultados(unidad_tiempo=lambda: self.panel.get("ut"))
         self.area.fila_clicada.connect(self.mostrar_formula)
         self.area.aviso.connect(self.avisar)
+        self.area.ir_a_costos.connect(lambda: self.panel.ir_a_seccion("costos", "cS"))
         # Atajos a las páginas
         self.p_resultados, self.p_probabilidades = self.area.resultados, self.area.probabilidades
         self.p_costos, self.p_comparacion, self.p_graficas = self.area.costos, self.area.comparacion, self.area.graficas

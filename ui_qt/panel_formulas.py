@@ -1,7 +1,8 @@
 """
 panel_formulas.py
 Panel «Cómo se calculó»: drawer flotante anclado al borde derecho del área de
-resultados. Se superpone al contenido (no cambia su ancho), tiene sombra, se abre
+resultados. Se superpone al contenido (no cambia su ancho), tiene sombra (dibujada por
+un widget hermano, ver sombra_lateral.py) y borde izquierdo de 1 px, se abre
 y se cierra deslizándose, y se cierra con su botón, con Esc o con un clic fuera.
 
 Muestra título, explicación, la fórmula dibujada con matplotlib, la misma fórmula
@@ -9,13 +10,14 @@ con los valores actuales y el resultado. No guarda fórmulas: cada vez la pide a
 services.formulas con el escenario vigente.
 """
 from PySide6.QtCore import QEasingCurve, QEvent, QPoint, QPropertyAnimation, QRect, Qt, Signal
-from PySide6.QtWidgets import (QApplication, QFrame, QGraphicsDropShadowEffect, QHBoxLayout, QLabel, QPushButton,
-                               QScrollArea, QSizePolicy, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QApplication, QFrame, QHBoxLayout, QLabel, QPushButton, QScrollArea, QSizePolicy,
+                               QVBoxLayout, QWidget)
 
 from services import formulas as fm
 
 from . import tema
 from .render_formula import formula_a_pixmap
+from .sombra_lateral import SombraLateral
 
 L = tema.LAYOUT
 
@@ -78,11 +80,7 @@ class PanelFormulas(QFrame):
         self._esc = self._fmt = None
         self._imagenes = []
         self._area = None
-
-        self.sombra = QGraphicsDropShadowEffect(self)
-        self.sombra.setBlurRadius(L["drawer_sombra"])
-        self.sombra.setOffset(-4, 0)
-        self.setGraphicsEffect(self.sombra)
+        self.sombra = None
         self._anim = QPropertyAnimation(self, b"pos", self)
         self._anim.setDuration(L["drawer_ms"])
         self._anim.setEasingCurve(QEasingCurve.OutCubic)
@@ -118,6 +116,7 @@ class PanelFormulas(QFrame):
         """Superpone el panel al borde derecho de `area` (sin entrar en su layout)."""
         self._area = area
         self.setParent(area)
+        self.sombra = SombraLateral(area)
         area.redimensionada.connect(self._reacomodar)
         QApplication.instance().aboutToQuit.connect(self._soltar_filtro)
         self.hide()
@@ -139,15 +138,18 @@ class PanelFormulas(QFrame):
         return QRect(x, 0, ancho, a.height())
 
     def abrir(self, esc, clave, fmt):
-        if not self.abierto:
-            self.abierto = True
-            self.sombra.setColor(tema.qcolor("sombra"))
-            self.setGeometry(self._geometria(False))
-            self.show()
-            self.raise_()
-            self._animar(self._geometria(True).topLeft())
-            QApplication.instance().installEventFilter(self)
+        if self.abierto:
+            self.mostrar(esc, clave, fmt)
+            return
+        self.abierto = True
+        # Primero se dibujan las ecuaciones (matplotlib) y recién después se desliza el panel:
+        # así la animación no pierde cuadros mientras se renderiza el contenido.
+        self.setGeometry(self._geometria(False))
         self.mostrar(esc, clave, fmt)
+        self.show()
+        self.raise_()
+        self._animar(self._geometria(True).topLeft())
+        QApplication.instance().installEventFilter(self)
 
     def cerrar(self):
         if not self.abierto:
@@ -174,6 +176,28 @@ class PanelFormulas(QFrame):
             if not self._dentro(evento.globalPosition().toPoint()) and not self._abre_formula(obj):
                 self.cerrar()
         return False
+
+    # La sombra hermana acompaña al panel en cada cuadro de la animación
+    def moveEvent(self, e):
+        super().moveEvent(e)
+        self._mover_sombra()
+
+    def resizeEvent(self, e):
+        super().resizeEvent(e)
+        self._mover_sombra()
+
+    def showEvent(self, e):
+        super().showEvent(e)
+        self._mover_sombra()
+
+    def hideEvent(self, e):
+        super().hideEvent(e)
+        if self.sombra is not None:
+            self.sombra.hide()
+
+    def _mover_sombra(self):
+        if self.sombra is not None:
+            self.sombra.seguir(self)
 
     def _dentro(self, punto_global):
         return self.rect().contains(self.mapFromGlobal(punto_global))
@@ -218,7 +242,8 @@ class PanelFormulas(QFrame):
             self.mostrar(esc, self.clave, fmt)
 
     def repintar(self):
-        self.sombra.setColor(tema.qcolor("sombra"))
+        if self.sombra is not None:
+            self.sombra.update()
         if self._esc is not None:
             self.actualizar(self._esc, self._fmt)
 

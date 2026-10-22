@@ -59,3 +59,40 @@ def visible_en_ventana(widget):
 
 def captura(widget, ruta):
     widget.grab().save(ruta)
+
+
+# ----------------------------------------------------------------------
+# Acceso a modelos de tabla sin importar Qt desde tests/
+# ----------------------------------------------------------------------
+def _rol(nombre):
+    from PySide6.QtCore import Qt
+    return {"texto": Qt.DisplayRole, "alineacion": Qt.TextAlignmentRole, "color": Qt.ForegroundRole}[nombre]
+
+
+def encabezado(modelo, columna, rol="texto"):
+    from PySide6.QtCore import Qt
+    return modelo.headerData(columna, Qt.Horizontal, _rol(rol))
+
+
+def celda(modelo, fila, columna, rol="texto"):
+    return modelo.index(fila, columna).data(_rol(rol))
+
+
+def a_la_derecha(alineacion):
+    from PySide6.QtCore import Qt
+    return bool(Qt.AlignmentFlag(alineacion) & Qt.AlignRight)
+
+
+def a_la_izquierda(alineacion):
+    from PySide6.QtCore import Qt
+    return bool(Qt.AlignmentFlag(alineacion) & Qt.AlignLeft)
+
+
+def ordenar(vista, columna, descendente=True):
+    from PySide6.QtCore import Qt
+    vista.sortByColumn(columna, Qt.DescendingOrder if descendente else Qt.AscendingOrder)
+
+
+def sin_orden(vista):
+    from PySide6.QtCore import Qt
+    vista.horizontalHeader().setSortIndicator(-1, Qt.AscendingOrder)

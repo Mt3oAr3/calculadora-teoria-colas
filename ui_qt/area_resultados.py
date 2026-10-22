@@ -36,6 +36,7 @@ def _desplazable(pagina):
 class AreaResultados(QWidget):
     fila_clicada = Signal(str)        # tarjeta o fila con fórmula
     aviso = Signal(str)               # mensajes para la barra de estado
+    ir_a_costos = Signal()            # botón del estado vacío de costos
     redimensionada = Signal()         # el panel superpuesto se reacomoda
 
     def __init__(self, unidad_tiempo, padre=None):
@@ -51,6 +52,7 @@ class AreaResultados(QWidget):
         self.resultados = PaginaResultados()
         self.probabilidades = PaginaProbabilidades()
         self.costos = PaginaCostos()
+        self.costos.ir_a_costos.connect(self.ir_a_costos.emit)
         self.comparacion = PaginaComparacion(unidad_tiempo=unidad_tiempo)
         self.graficas = PaginaGraficas()
         self.graficas.aviso.connect(self.aviso.emit)

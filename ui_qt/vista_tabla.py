@@ -17,25 +17,23 @@ from PySide6.QtWidgets import (QAbstractItemView, QFrame, QHeaderView, QLabel, Q
                                QTableView, QVBoxLayout, QWidget)
 
 from . import tema
+from .info_box import InfoBox
 from .modelo_tabla import ROL_CLAVE, ModeloTabla, ProxyOrdenable
 
 L = tema.LAYOUT
 
 
 def encabezado_pagina(titulo, nota=""):
-    """Título y nota breve de una página de resultados."""
+    """Título de una página de resultados y, debajo, su explicación en una caja informativa."""
     caja = QWidget()
     lay = QVBoxLayout(caja)
     lay.setContentsMargins(0, 0, 0, 0)
-    lay.setSpacing(2)
+    lay.setSpacing(tema.LAYOUT["info_espacio"])
     t = QLabel(titulo)
     t.setProperty("rol", "titulo")
     lay.addWidget(t)
     if nota:
-        n = QLabel(nota)
-        n.setProperty("rol", "nota")
-        n.setWordWrap(True)
-        lay.addWidget(n)
+        lay.addWidget(InfoBox(nota))
     return caja
 
 
@@ -53,6 +51,7 @@ class VistaTabla(QFrame):
 
     def __init__(self, titulo="", ordenable=False, filas_min=4, padre=None):
         super().__init__(padre)
+        self.estado_vacio = None          # widget opcional que reemplaza a la tabla (ver usar_estado_vacio)
         self.setObjectName("Bloque")
         self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
         lay = QVBoxLayout(self)
@@ -92,6 +91,7 @@ class VistaTabla(QFrame):
         cab.setMinimumSectionSize(60)
         cab.setSectionResizeMode(QHeaderView.Interactive)
         cab.sectionResized.connect(self._columna_redimensionada)
+        cab.sortIndicatorChanged.connect(self._reordenado)
         self.vista.clicked.connect(self._clic)
         self.vista.redimensionada.connect(self._ajustar)
         (self.proxy or self.modelo).layoutChanged.connect(self._ajustar_alto)
@@ -135,8 +135,28 @@ class VistaTabla(QFrame):
         self.vista.setFixedHeight(L["tabla_alto_fila"])     # la tabla oculta no fija el alto del bloque
         self._fijar_alto_bloque(self.vacio.minimumHeight())
 
+    def usar_estado_vacio(self, widget):
+        """Registra un estado vacío propio (p. ej. EstadoVacio) para mostrar en lugar de la tabla."""
+        self.estado_vacio = widget
+        self.pila.addWidget(widget)
+
+    def mostrar_estado_vacio(self):
+        self.modelo.limpiar()
+        self._naturales = []
+        self.pila.setCurrentWidget(self.estado_vacio)
+        self.vista.setFixedHeight(L["tabla_alto_fila"])
+        m = self.layout().contentsMargins()
+        self._fijar_alto_bloque(self.estado_vacio.alto_para(max(1, self.width() - m.left() - m.right())))
+
     def repintar(self):
         self.modelo.repintar()
+
+    def _reordenado(self, *_):
+        """La flecha ↑/↓ alarga el título de la columna ordenada: se vuelven a medir los anchos."""
+        if self.modelo.tabla is not None and self._naturales:
+            self._medir_naturales()
+            self._ancho_previo = None
+            self._ajustar()
 
     # ------------------------------------------------------------------
     # Dimensionado
@@ -170,6 +190,10 @@ class VistaTabla(QFrame):
         return nat
 
     def _ajustar(self):
+        if self.estado_vacio is not None and self.pila.currentWidget() is self.estado_vacio:
+            m = self.layout().contentsMargins()
+            self._fijar_alto_bloque(self.estado_vacio.alto_para(max(1, self.width() - m.left() - m.right())))
+            return
         if self.modelo.tabla is None or not self._naturales:
             return
         disponible = self.vista.viewport().width()
@@ -225,6 +249,11 @@ class VistaTabla(QFrame):
             alto += max(self.titulo.sizeHint().height(), self.titulo.heightForWidth(ancho))
         self.layout().invalidate()
         self.setMinimumHeight(max(alto, self.minimumSizeHint().height()))
+
+    def resizeEvent(self, e):
+        super().resizeEvent(e)
+        if self.estado_vacio is not None and self.pila.currentWidget() is self.estado_vacio:
+            self._ajustar()
 
     def _columna_redimensionada(self, *_):
         if not self._ajustando:          # el usuario cambió un ancho a mano: recalcula las alturas

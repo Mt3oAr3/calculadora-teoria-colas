@@ -11,6 +11,7 @@ from domain.errores import ErrorEntrada
 from services import comparacion_service as cmp
 
 from . import tema
+from .info_box import InfoBox
 from .vista_tabla import VistaTabla, encabezado_pagina
 
 
@@ -85,11 +86,10 @@ class PaginaComparacion(QWidget):
         leyenda.setSpacing(16)
         leyenda.addWidget(_muestra("cumple", "Cumple la condición"))
         leyenda.addWidget(_muestra("mejor", "Menor costo total"))
-        nota = QLabel("Negrita: valor actual. Los tiempos usan la unidad de «Mostrar tiempos en».")
-        nota.setProperty("rol", "leyenda")
-        nota.setWordWrap(True)
-        leyenda.addWidget(nota, 1)
+        leyenda.addStretch(1)
         lay.addLayout(leyenda)
+        lay.addWidget(InfoBox("Negrita: valor actual. Los tiempos usan la unidad de «Mostrar tiempos en». "
+                              "Verde: el k de menor costo total."))
 
         self.tabla_k = VistaTabla("En función de k", ordenable=True, filas_min=3)
         self.tabla_M = VistaTabla("En función de M", ordenable=True, filas_min=3)

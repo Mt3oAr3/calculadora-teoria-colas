@@ -128,15 +128,123 @@ class TestVentanaQt(unittest.TestCase):
         self.assertNotIn("cambiaron", textos)
         self.assertNotIn("desactualiz", textos.lower())
 
-    def test_nota_sin_costos(self):
-        nota = self.v.p_costos.nota
+    # ------------------------------------------------------------------
+    # Estado vacío de costos
+    # ------------------------------------------------------------------
+    def test_estado_vacio_solo_sin_costos(self):
+        pag = self.v.p_costos
         self.v.area.ir_a(2)
         self.sp.procesar()
-        self.assertTrue(nota.isVisible())                  # valores iniciales: todo en 0
+        self.assertTrue(pag.mostrando_vacio and pag.vacio.isVisible())    # valores iniciales: todo en 0
+        self.assertFalse(pag.tabla_cost.vista.isVisible())
+        self.v.panel.poner("cW", "5")                                     # solo costo de espera
+        self.v.calcular()
+        self.sp.procesar()
+        self.assertFalse(pag.mostrando_vacio or pag.vacio.isVisible())
+        self.assertTrue(pag.tabla_cost.vista.isVisible())
+
+    def test_ceros_atenuados_y_rentabilidad_no_aplica(self):
+        from ui_qt import tema
+        sp = self.sp
+        self.v.panel.poner("cW", "5")                                     # cS, cI e ingreso siguen en 0
+        self.v.calcular()
+        self.sp.procesar()
+        m = self.v.p_costos.tabla_cost.vista.model()
+        filas = {sp.celda(m, r, 0): r for r in range(m.rowCount())}
+        self.assertEqual(sp.celda(m, filas["CT(S) costo de servidores"], 1, "color").name(), tema.color("texto_3"))
+        self.assertIsNone(sp.celda(m, filas["CT(TE) costo del tiempo de espera"], 1, "color"))
+        self.assertEqual(sp.celda(m, filas["Rentabilidad (ingresos ÷ gastos)"], 1), "—")
+
+    def test_boton_ir_a_costos(self):
+        self.v.panel.secciones["costos"].abrir(False)
+        self.v.panel.scroll.verticalScrollBar().setValue(0)
+        self.v.area.ir_a(2)
+        self.v.activateWindow()
+        self.sp.procesar()
+        self.sp.clic(self.v.p_costos.vacio.boton)
+        self.sp.procesar()
+        seccion = self.v.panel.secciones["costos"]
+        campo = self.v.panel.widgets["cS"]
+        self.assertTrue(seccion.cuerpo.isVisible())
+        self.assertTrue(campo.hasFocus())
+        visor = self.v.panel.scroll.viewport()
+        arriba = campo.mapTo(visor, campo.rect().topLeft()).y()
+        self.assertTrue(0 <= arriba and arriba + campo.height() <= visor.height(), "el campo no quedó a la vista")
+
+    # ------------------------------------------------------------------
+    # Tablas, cajas informativas, banner y sombra
+    # ------------------------------------------------------------------
+    def _tablas(self):
+        """Todas las tablas con datos; población finita para que también haya tabla «en función de M»."""
+        from ui_qt.vista_tabla import VistaTabla
+        self.v.panel.poner("poblacion", "Finita")
         self.v.panel.poner("cW", "5")
         self.v.calcular()
         self.sp.procesar()
-        self.assertFalse(nota.isVisible())
+        return [t for t in self.v.area.findChildren(VistaTabla) if t.modelo.tabla is not None]
+
+    def test_numeros_a_la_derecha_en_todas_las_tablas(self):
+        sp = self.sp
+        tablas = self._tablas()
+        self.assertGreaterEqual(len(tablas), 7)
+        for t in tablas:
+            m = t.vista.model()
+            for c, col in enumerate(t.modelo.tabla.columnas):
+                bien = sp.a_la_derecha if col.numerica else sp.a_la_izquierda
+                self.assertTrue(bien(sp.encabezado(m, c, "alineacion")), f"{t.modelo.tabla.titulo} / {col.titulo}")
+                for r in range(m.rowCount()):
+                    self.assertTrue(bien(sp.celda(m, r, c, "alineacion")),
+                                    f"{t.modelo.tabla.titulo} / {col.titulo}: fila {r}")
+
+    def test_orden_no_desalinea_las_cifras(self):
+        sp = self.sp
+        t = self.v.p_probabilidades.tabla_dist
+        sp.ordenar(t.vista, 2)
+        sp.procesar()
+        m = t.vista.model()
+        titulo = sp.encabezado(m, 2)
+        self.assertTrue(titulo.startswith("↓ "), titulo)      # flecha delante: el borde derecho no cambia
+        self.assertTrue(sp.a_la_derecha(sp.encabezado(m, 2, "alineacion")))
+        sp.sin_orden(t.vista)
+
+    def test_filas_alternas_en_todas_las_tablas(self):
+        for t in self._tablas():
+            self.assertTrue(t.vista.alternatingRowColors(), t.modelo.tabla.titulo)
+
+    def test_cajas_informativas_sin_cortes(self):
+        from ui_qt.info_box import InfoBox
+        for i in range(5):
+            self.v.area.ir_a(i)
+            self.sp.procesar()
+            for caja in self.v.area.findChildren(InfoBox):
+                if caja.isVisible():
+                    necesario = caja.layout().heightForWidth(caja.width())
+                    self.assertGreaterEqual(caja.height(), necesario, caja.text()[:40])
+                    self.assertGreaterEqual(caja.texto.height(), caja.texto.heightForWidth(caja.texto.width()))
+
+    def test_banner_con_aire_y_boton_centrado(self):
+        from ui_qt import tema
+        self.v.panel.poner("k", "2")
+        self.sp.esperar(500)
+        b = self.v.banner
+        m = b.layout().contentsMargins()
+        self.assertGreaterEqual(m.top(), 10)
+        self.assertGreaterEqual(m.left(), 14)
+        self.assertGreaterEqual(b.layout().spacing(), 12)
+        centro_boton = b.boton.geometry().center().y()
+        centro_texto = b.texto.geometry().center().y()
+        self.assertLessEqual(abs(centro_boton - centro_texto), 2)
+        self.assertEqual(tema.LAYOUT["banner_margen"], (m.left(), m.top(), m.right(), m.bottom()))
+
+    def test_sombra_del_panel(self):
+        self._abrir_formula()
+        f = self.v.formulas
+        self.assertIsNone(f.graphicsEffect())                 # sin efecto: nada se redibuja fuera de pantalla
+        s = f.sombra
+        self.assertTrue(s.isVisible())
+        self.assertEqual(s.geometry().right() + 1, f.geometry().left())
+        self.assertEqual(s.height(), f.height())
+        self.assertGreater(s.width(), 20)
 
 
 if __name__ == "__main__":

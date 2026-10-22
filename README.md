@@ -47,6 +47,10 @@ Supuestos relevantes:
   superpuesto **«Cómo se calculó»**: al hacer clic en una tarjeta o en una fila se muestra la
   fórmula del modelo (dibujada con mathtext de matplotlib), la misma fórmula con los datos
   actuales y el resultado.
+- **Paleta de marca:** rojo #ea0f02 (acción principal, selección, acentos) y verde #00841d
+  (botones secundarios, menor costo, éxito) sobre blanco y negro, en tema claro y oscuro.
+  Los estados de error, éxito e inestabilidad llevan icono además de color, y el contraste
+  de todos los pares texto/fondo se verifica con `tests/test_contraste.py` (WCAG ≥ 4,5:1).
 
 ## Requisitos e instalación
 
@@ -115,12 +119,15 @@ calculadora_colas/
 │   ├── vista_comparacion.py     Comparar k y M
 │   ├── vista_graficas.py        Gráficas incrustadas (FigureCanvasQTAgg)
 │   ├── panel_formulas.py        Panel superpuesto «Cómo se calculó»
+│   ├── sombra_lateral.py        Sombra del panel de fórmulas (widget hermano con degradado)
+│   ├── info_box.py              Caja informativa con icono «i» verde
+│   ├── estado_vacio.py          Estado vacío con botón (p. ej. «Aún no hay costos ingresados»)
 │   ├── soporte_pruebas.py       Ayudas para probar la ventana sin pantalla (offscreen)
 │   ├── render_formula.py        mathtext -> QPixmap (backend Agg)
-│   └── tema.py                  Paletas claro/oscuro y hoja de estilos QSS
+│   └── tema.py                  Tokens de la paleta de marca, medidas y hoja de estilos QSS
 └── tests/                       Pruebas automatizadas (unittest)
     ├── datos/referencia_original.json
-    ├── test_modelos.py  test_unidades.py  test_costos.py  test_formulas.py  test_ventana_qt.py
+    ├── test_modelos.py  test_unidades.py  test_costos.py  test_formulas.py  test_ventana_qt.py  test_contraste.py
     ├── test_servicios.py  test_comparaciones.py  test_arquitectura.py
 ```
 

@@ -336,6 +336,18 @@ class PanelEntradas(QWidget):
     # ------------------------------------------------------------------
     # Errores por campo
     # ------------------------------------------------------------------
+    def ir_a_seccion(self, seccion, campo):
+        """Abre la sección, la desplaza a la vista y enfoca el campo indicado."""
+        s = self.secciones[seccion]
+        s.abrir(True)
+        w = self.widgets[campo]
+        self.scroll.widget().adjustSize()
+        self.scroll.ensureWidgetVisible(s.cabecera, 0, 0)
+        self.scroll.ensureWidgetVisible(w, 0, 40)
+        w.setFocus(Qt.OtherFocusReason)
+        if isinstance(w, QLineEdit):
+            w.selectAll()
+
     def marcar_errores(self, errores):
         """errores: lista de (clave, mensaje). Resalta, abre su sección y enfoca el primero."""
         self.limpiar_errores()
