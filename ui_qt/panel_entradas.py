@@ -15,6 +15,7 @@ from domain.unidades import ABREV, UNIDADES
 from services import calculadora_service as cs
 
 from . import tema
+from .combo import crear_combo
 from .seccion_plegable import SeccionPlegable
 
 L = tema.LAYOUT
@@ -32,12 +33,8 @@ def etiqueta(texto, rol, ajustar=False):
 
 def _combo(opciones):
     """Lista que no exige el ancho de su opción más larga (el panel no se corta a la derecha)."""
-    c = QComboBox()
-    c.addItems(opciones)
-    c.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
-    c.setMinimumContentsLength(6)
-    c.view().setMinimumWidth(c.view().sizeHintForColumn(0) + 24)
-    return c
+    return crear_combo(opciones, minimo_contenido=6)
+
 
 
 class PanelEntradas(QWidget):

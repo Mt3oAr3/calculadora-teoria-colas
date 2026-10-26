@@ -211,29 +211,41 @@ class VistaTabla(QFrame):
             self._ajustando = False
         self._ajustar_alto()
 
-    def _alto_fila(self, fila):
-        """Alto de una fila según su texto envuelto en el ancho de cada columna (no depende de que se vea)."""
+    def _alto_fila(self, fila, angostas):
+        """
+        Alto de una fila según su texto envuelto en el ancho de cada columna (no depende de que se vea).
+        Solo las columnas `angostas` (más angostas que su contenido en una línea) pueden partir el
+        texto: las demás ocupan una línea y no hace falta medirlas celda por celda.
+        """
         m = self.vista.model()
-        alto = L["tabla_alto_fila"]
-        for c in range(m.columnCount()):
-            ix = m.index(fila, c)
-            texto = ix.data() or ""
+        fm = QFontMetrics(m.index(fila, 0).data(Qt.FontRole) or self.vista.font())    # la fuente es por fila
+        alto = max(L["tabla_alto_fila"], fm.height() + L["tabla_relleno_vertical"])
+        for c in angostas:
+            texto = m.index(fila, c).data() or ""
             if not texto:
                 continue
-            fm = QFontMetrics(ix.data(Qt.FontRole) or self.vista.font())
             ancho = max(1, self.vista.columnWidth(c) - L["tabla_relleno_celda"])
             caja = fm.boundingRect(0, 0, ancho, 100000, Qt.TextWordWrap, texto)
             alto = max(alto, caja.height() + L["tabla_relleno_vertical"])
         return alto
+
+    def _columnas_angostas(self):
+        """Columnas más angostas que su ancho natural (contenido en una línea): las únicas que parten texto."""
+        n = self.vista.model().columnCount()
+        if len(self._naturales) != n:
+            return list(range(n))
+        return [c for c in range(n) if self.vista.columnWidth(c) < self._naturales[c]]
 
     def _ajustar_alto(self):
         """Filas al alto de su texto y la tabla al alto de todas sus filas (sin barra vertical)."""
         if self.modelo.tabla is None:
             return
         vh = self.vista.verticalHeader()
+        angostas = self._columnas_angostas()
         filas = 0
         for r in range(self.vista.model().rowCount()):
-            h = self._alto_fila(r)
+            h = self._alto_fila(r, angostas)
+
             vh.resizeSection(r, h)
             filas += h
         cab = self.vista.horizontalHeader()
@@ -265,3 +277,16 @@ class VistaTabla(QFrame):
         clave = ix.data(ROL_CLAVE)
         if clave:
             self.fila_clicada.emit(clave)
+
+    def seleccionar_clave(self, clave):
+        """Resalta la fila con esa clave (también tras reordenar o volver a mostrar). False si no está."""
+        m = self.vista.model()
+        for r in range(m.rowCount()):
+            if m.index(r, 0).data(ROL_CLAVE) == clave:
+                self.vista.selectRow(r)
+                return True
+        return False
+
+    def quitar_seleccion(self):
+        self.vista.clearSelection()
+

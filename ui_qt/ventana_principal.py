@@ -6,9 +6,14 @@ Ventana principal de la versión Qt. Coordina el mismo flujo que ui/app.py:
                   --> calculadora_service.calcular_escenario()
                   --> AreaResultados (encabezado, pestañas con tarjetas y tablas)
     clic en tarjeta o fila --> PanelFormulas («Cómo se calculó»)
+    clic en fila de «Comparar k y M» --> PanelFormulas con el escenario de esa fila
 
 Distribución: barra superior fina, banner global de datos desactualizados y, debajo,
 el panel de parámetros a la izquierda y el área de resultados con pestañas a la derecha.
+El panel de parámetros se oculta / muestra con el botón de la barra o Ctrl+B; la animación
+desplaza capturas (TransicionPanel) y el divisor se reacomoda una sola vez al terminar. Se
+vuelve a mostrar solo si hay campos con error o se pide ir a una sección. Su estado (visible
+y ancho) se recuerda entre sesiones con QSettings.
 
 Distingue tres tipos de fallo:
     ErrorEntrada  -> se marcan los campos en el formulario.
@@ -18,7 +23,7 @@ En cualquier fallo se retiran los resultados anteriores para no confundirlos.
 """
 import traceback
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Property, QAbstractAnimation, QEasingCurve, QPropertyAnimation, QSettings, Qt
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (QApplication, QFileDialog, QLabel, QMainWindow, QMessageBox, QSplitter, QVBoxLayout,
                                QWidget)
@@ -35,10 +40,17 @@ from .barra_superior import BarraSuperior
 from .barra_titulo import aplicar_barra_titulo
 from .panel_entradas import PanelEntradas
 from .panel_formulas import PanelFormulas
+from .transicion_panel import TransicionPanel
 
 TITULO = "Calculadora de Teoría de Colas - Técnicas de Simulación"
 TAMANO_INICIAL = (1480, 900)
 TAMANO_MINIMO = (1100, 680)
+AJUSTES = ("TecnicasDeSimulacion", "CalculadoraColas")      # organización y aplicación de QSettings
+
+
+def ajustes():
+    """Preferencias de la interfaz (archivo .ini del usuario; las pruebas lo redirigen a una carpeta temporal)."""
+    return QSettings(QSettings.IniFormat, QSettings.UserScope, *AJUSTES)
 
 
 class VentanaPrincipal(QMainWindow):
@@ -61,6 +73,7 @@ class VentanaPrincipal(QMainWindow):
     def _construir(self):
         self.barra = BarraSuperior()
         self.barra.cambiar_tema.connect(self.alternar_tema)
+        self.barra.alternar_parametros.connect(self.alternar_parametros)
         self.banner = BannerDesactualizado()
         self.banner.calcular.connect(self.calcular)
 
@@ -72,8 +85,9 @@ class VentanaPrincipal(QMainWindow):
 
         self.area = AreaResultados(unidad_tiempo=lambda: self.panel.get("ut"))
         self.area.fila_clicada.connect(self.mostrar_formula)
+        self.area.formula_fila.connect(self.mostrar_formula_fila)
         self.area.aviso.connect(self.avisar)
-        self.area.ir_a_costos.connect(lambda: self.panel.ir_a_seccion("costos", "cS"))
+        self.area.ir_a_costos.connect(self._ir_a_costos)
         # Atajos a las páginas
         self.p_resultados, self.p_probabilidades = self.area.resultados, self.area.probabilidades
         self.p_costos, self.p_comparacion, self.p_graficas = self.area.costos, self.area.comparacion, self.area.graficas
@@ -81,7 +95,8 @@ class VentanaPrincipal(QMainWindow):
         # Panel «Cómo se calculó»: superpuesto al área de resultados, no ocupa lugar en el layout
         self.formulas = PanelFormulas()
         self.formulas.anclar(self.area)
-        self.formulas.cerrado.connect(lambda: self.p_resultados.tarjetas.marcar_activa(None))
+        self.formulas.cerrado.connect(self._formula_cerrada)
+        self.area.fila_perdida.connect(self.formulas.cerrar)
 
         self.divisor = QSplitter(Qt.Horizontal)
         self.divisor.setChildrenCollapsible(False)
@@ -89,7 +104,14 @@ class VentanaPrincipal(QMainWindow):
         for w in (self.panel, self.area):
             self.divisor.addWidget(w)
         self.divisor.setStretchFactor(1, 1)
-        self.divisor.setSizes([self.panel.minimumWidth(), TAMANO_INICIAL[0]])
+        self.divisor.splitterMoved.connect(self._recordar_ancho_panel)
+        self._ancho_min_panel = self.panel.minimumWidth()
+        self._al_mostrarse = None       # acción pendiente hasta que el panel termine de aparecer
+        self._anim_panel = QPropertyAnimation(self, b"anchoParametros", self)
+        self._anim_panel.setDuration(tema.LAYOUT["panel_ms"])
+        self._anim_panel.setEasingCurve(QEasingCurve.OutCubic)
+        self._anim_panel.finished.connect(self._fin_animacion_panel)
+        self._restaurar_panel()
 
         raiz = QWidget()
         lay = QVBoxLayout(raiz)
@@ -99,6 +121,7 @@ class VentanaPrincipal(QMainWindow):
         lay.addWidget(self.banner)
         lay.addWidget(self.divisor, 1)
         self.setCentralWidget(raiz)
+        self.transicion = TransicionPanel(raiz)      # tapa el divisor solo mientras dura la animación
 
         self.estado = QLabel("Listo.")
         self.statusBar().addWidget(self.estado, 1)
@@ -106,6 +129,7 @@ class VentanaPrincipal(QMainWindow):
     def _atajos(self):
         QShortcut(QKeySequence(Qt.Key_F5), self, self.calcular)
         QShortcut(QKeySequence("Ctrl+T"), self, self.alternar_tema)
+        QShortcut(QKeySequence("Ctrl+B"), self, self.alternar_parametros)
         QShortcut(QKeySequence(Qt.Key_Escape), self, self.formulas.cerrar)
         for i in range(len(PESTANAS)):
             QShortcut(QKeySequence(f"Ctrl+{i + 1}"), self, lambda i=i: self.area.ir_a(i))
@@ -135,7 +159,8 @@ class VentanaPrincipal(QMainWindow):
         try:
             p = cs.leer_parametros(self.panel.valores())
         except ErrorEntrada as e:
-            self.panel.marcar_errores(e.errores)
+            errores = e.errores                  # los campos en rojo deben verse: el panel reaparece
+            self._con_parametros_visibles(lambda: self.panel.marcar_errores(errores))
             n = len(e.errores)
             detalle = e.errores[0][1] + (f"  (y {n - 1} error(es) más)" if n > 1 else "")
             self._sin_resultados(f"Revisa los datos marcados en rojo en el panel de parámetros. {detalle}")
@@ -163,8 +188,11 @@ class VentanaPrincipal(QMainWindow):
         """Dibuja el escenario vigente en todas las vistas con la presentación elegida."""
         fmt = self._formateador()
         try:
+            # Si el panel muestra una fila de «Comparar k y M», la página de comparación lo regenera con
+            # el escenario de esa fila (o lo cierra si la fila ya no está): nunca con el escenario vigente.
             self.area.mostrar(self.esc, fmt, cs.contexto_graficas(self.esc, self.panel.get("ut")))
-            self.formulas.actualizar(self.esc, fmt)
+            if self.formulas.contexto is None:
+                self.formulas.actualizar(self.esc, fmt)
         except Exception as e:
             traceback.print_exc()
             self._sin_resultados("Ocurrió un error inesperado al mostrar los resultados.")
@@ -189,13 +217,162 @@ class VentanaPrincipal(QMainWindow):
             self._mostrar()
 
     # ------------------------------------------------------------------
+    # Panel de parámetros ocultable
+    # ------------------------------------------------------------------
+    @property
+    def parametros_visibles(self):
+        """True si el panel de parámetros está visible (o apareciendo)."""
+        return self._panel_visible
+
+    def _limitar_ancho(self, ancho):
+        tope = int(max(self.width(), TAMANO_MINIMO[0]) * tema.LAYOUT["panel_fraccion_max"])
+        return max(self._ancho_min_panel, min(int(ancho), tope))
+
+    def _restaurar_panel(self):
+        aj = ajustes()
+        try:
+            ancho = int(aj.value("panel/ancho", self._ancho_min_panel))
+        except (TypeError, ValueError):
+            ancho = self._ancho_min_panel
+        self._ancho_panel = self._limitar_ancho(ancho)
+        self._panel_visible = str(aj.value("panel/visible", "true")).lower() != "false"
+        self.divisor.setSizes([self._ancho_panel, TAMANO_INICIAL[0] - self._ancho_panel])
+        self.panel.setVisible(self._panel_visible)
+        self.barra.marcar_parametros(self._panel_visible)
+
+    def _guardar_panel(self):
+        aj = ajustes()
+        aj.setValue("panel/visible", "true" if self._panel_visible else "false")
+        aj.setValue("panel/ancho", int(self._ancho_panel))
+
+    def _animando(self):
+        anim = getattr(self, "_anim_panel", None)        # QPropertyAnimation lee la propiedad al crearse
+        return anim is not None and anim.state() == QAbstractAnimation.Running
+
+    def _ancho_animado(self):
+        if self._animando():
+            return self.transicion.ancho
+        return 0 if self.panel.isHidden() else self.panel.width()
+
+    def _poner_ancho_animado(self, ancho):
+        """Un cuadro de la animación: solo se desplazan las capturas (nada se reacomoda)."""
+        self.transicion.poner_ancho(ancho)
+
+    # Ancho visible del panel de parámetros como propiedad Qt: es lo único que anima QPropertyAnimation
+    anchoParametros = Property(int, _ancho_animado, _poner_ancho_animado)
+
+    def _recordar_ancho_panel(self, *_):
+        """El usuario movió el divisor: ese es el ancho al que vuelve el panel al mostrarse."""
+        if self._panel_visible and not self._animando() and not self.panel.isHidden():
+            self._ancho_panel = self.panel.width()
+
+    def alternar_parametros(self):
+        self.mostrar_parametros(not self._panel_visible)
+
+    def mostrar_parametros(self, visible=True, animar=True):
+        """
+        Muestra u oculta el panel de parámetros. La animación solo desplaza las capturas de
+        TransicionPanel: el layout real (divisor, tablas, gráfica y panel «Cómo se calculó»,
+        anclado al área de resultados) se aplica una sola vez, al terminar. Si se pide lo contrario
+        a mitad de camino, la animación se invierte desde el ancho actual: como el layout real
+        aún no cambió, no hay saltos. El estado guardado es siempre el destino final.
+        """
+        if visible == self._panel_visible:
+            return
+        animando = self._animando()
+        self._panel_visible = visible
+        self.barra.marcar_parametros(visible)
+        if not visible and not animando and not self.panel.isHidden():
+            self._ancho_panel = self._limitar_ancho(self.panel.width())
+        self._guardar_panel()
+        if not (animar and self.isVisible()):
+            self._anim_panel.stop()
+            self._fin_animacion_panel()
+            return
+        inicio = self._ancho_animado()
+        self._anim_panel.stop()
+        if not animando:
+            self._capturar(inicio)
+        fin = self._ancho_panel if visible else 0
+        # Velocidad constante: invertir a mitad de camino tarda solo lo que falta recorrer
+        self._anim_panel.setDuration(max(1, round(tema.LAYOUT["panel_ms"] * abs(fin - inicio) / self._ancho_panel)))
+        self._anim_panel.setStartValue(inicio)
+        self._anim_panel.setEndValue(fin)
+        self._anim_panel.start()
+
+    def _capturar(self, inicio):
+        """Fotografía el panel (con su ancho de visible) y el área de resultados tal como están."""
+        if self.panel.isHidden():
+            self.panel.resize(self._ancho_panel, self.divisor.height())
+        anclada = 0
+        if self.formulas.isVisible():          # el drawer (y su sombra) siguen pegados al borde derecho
+            izquierda = self.formulas.x() - (self.formulas.sombra.width() if self.formulas.sombra else 0)
+            anclada = max(0, self.area.width() - izquierda)
+        self.transicion.poner_ancho(inicio)
+        self.transicion.preparar(self.divisor.geometry(), self.panel.grab(), self._ancho_panel, self.area.grab(),
+                                 self.divisor.handleWidth(), anclada)
+
+
+    def _fin_animacion_panel(self):
+        """Aplica el layout final una sola vez y retira las capturas."""
+        if self._panel_visible:
+            self.panel.show()
+            total = self.divisor.width() - self.divisor.handleWidth()
+            self.divisor.setSizes([self._ancho_panel, max(1, total - self._ancho_panel)])
+        else:
+            self.panel.hide()                      # oculto, el área de resultados ocupa todo el ancho
+        self.transicion.terminar()
+        accion, self._al_mostrarse = self._al_mostrarse, None
+        if accion is not None and self._panel_visible:
+            accion()
+
+    def _con_parametros_visibles(self, accion):
+        """
+        Ejecuta `accion` (marcar errores, ir a una sección) con el panel a la vista: ya mismo, para
+        que la captura de la animación lo muestre, y otra vez cuando termina de aparecer, para que el
+        foco y el desplazamiento funcionen (un widget oculto no recibe el foco).
+        """
+        accion()
+        if self.panel.isHidden() or self._animando() or not self._panel_visible:
+            self._al_mostrarse = accion
+            self.mostrar_parametros(True)
+
+    def resizeEvent(self, e):
+        super().resizeEvent(e)
+        if self._animando():                       # las capturas ya no calzan: se salta al final
+            self._anim_panel.stop()
+            self._fin_animacion_panel()
+
+    def _ir_a_costos(self):
+        self._con_parametros_visibles(lambda: self.panel.ir_a_seccion("costos", "cS"))
+
+
+    def closeEvent(self, e):
+        self._recordar_ancho_panel()
+        self._guardar_panel()
+        super().closeEvent(e)
+
+    # ------------------------------------------------------------------
     # Fórmulas y tema
     # ------------------------------------------------------------------
     def mostrar_formula(self, clave):
         if self.esc is None:
             return
+        self.p_comparacion.soltar_fila()
         self.formulas.abrir(self.esc, clave, self._formateador())
         self.p_resultados.tarjetas.marcar_activa(clave)
+
+    def mostrar_formula_fila(self, esc_fila, clave, metrica, fila):
+        """«Cómo se calculó» de `metrica` en una fila de «Comparar k y M» (escenario de esa fila)."""
+        if self.esc is None:
+            return
+        self.p_resultados.tarjetas.marcar_activa(None)
+        self.formulas.abrir(esc_fila, clave, self._formateador(), contexto=fila, nombre=metrica)
+
+    def _formula_cerrada(self):
+        self.p_resultados.tarjetas.marcar_activa(None)
+        self.p_comparacion.soltar_fila()
+
 
     def alternar_tema(self):
         self.aplicar_tema("oscuro" if tema.actual() == "claro" else "claro")

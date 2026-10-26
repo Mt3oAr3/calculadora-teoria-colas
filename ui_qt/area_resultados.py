@@ -35,6 +35,8 @@ def _desplazable(pagina):
 
 class AreaResultados(QWidget):
     fila_clicada = Signal(str)        # tarjeta o fila con fórmula
+    formula_fila = Signal(object, str, str, str)    # fila de «Comparar k y M» (ver PaginaComparacion)
+    fila_perdida = Signal()           # esa fila ya no está en la comparación
     aviso = Signal(str)               # mensajes para la barra de estado
     ir_a_costos = Signal()            # botón del estado vacío de costos
     redimensionada = Signal()         # el panel superpuesto se reacomoda
@@ -54,6 +56,9 @@ class AreaResultados(QWidget):
         self.costos = PaginaCostos()
         self.costos.ir_a_costos.connect(self.ir_a_costos.emit)
         self.comparacion = PaginaComparacion(unidad_tiempo=unidad_tiempo)
+        self.comparacion.formula_pedida.connect(self.formula_fila.emit)
+        self.comparacion.fila_perdida.connect(self.fila_perdida.emit)
+
         self.graficas = PaginaGraficas()
         self.graficas.aviso.connect(self.aviso.emit)
         self.paginas = [self.resultados, self.probabilidades, self.costos, self.comparacion, self.graficas]

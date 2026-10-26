@@ -7,17 +7,28 @@ importa PySide6 directamente (ver tests/test_arquitectura.py).
 """
 import os
 import sys
+import tempfile
+
+_ajustes_aislados = False
 
 
 def aplicacion():
-    """QApplication sin pantalla (la crea una sola vez) con las fuentes del sistema."""
+    """QApplication sin pantalla (la crea una sola vez) con las fuentes del sistema.
+
+    Las preferencias (QSettings) van a una carpeta temporal: las pruebas no leen ni pisan las del usuario.
+    """
+    global _ajustes_aislados
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     fuentes = os.path.join(os.environ.get("WINDIR", r"C:\Windows"), "Fonts")
     if sys.platform == "win32" and os.path.isdir(fuentes):
         os.environ.setdefault("QT_QPA_FONTDIR", fuentes)
     import matplotlib
     matplotlib.use("Agg")
+    from PySide6.QtCore import QSettings
     from PySide6.QtWidgets import QApplication
+    if not _ajustes_aislados:
+        QSettings.setPath(QSettings.IniFormat, QSettings.UserScope, tempfile.mkdtemp(prefix="colas_ajustes_"))
+        _ajustes_aislados = True
     return QApplication.instance() or QApplication([])
 
 
@@ -33,11 +44,12 @@ def esperar(ms):
     QTest.qWait(ms)
 
 
-def tecla(widget, nombre):
-    """Pulsa una tecla por nombre de Qt.Key (p. ej. 'Escape', 'Return', 'F5')."""
+def tecla(widget, nombre, ctrl=False):
+    """Pulsa una tecla por nombre de Qt.Key (p. ej. 'Escape', 'Return', 'F5'); ctrl=True la combina con Ctrl."""
     from PySide6.QtCore import Qt
     from PySide6.QtTest import QTest
-    QTest.keyClick(widget, getattr(Qt, f"Key_{nombre}"))
+    QTest.keyClick(widget, getattr(Qt, f"Key_{nombre}"), Qt.ControlModifier if ctrl else Qt.NoModifier)
+
 
 
 def clic(widget, punto=None):
@@ -47,7 +59,17 @@ def clic(widget, punto=None):
     QTest.mouseClick(widget, Qt.LeftButton, Qt.NoModifier, punto if punto is not None else QPoint())
 
 
+def clic_fila(vista, fila, columna=0):
+    """Clic en la celda (fila, columna) de un QTableView, como lo haría el usuario."""
+    clic(vista.viewport(), vista.visualRect(vista.model().index(fila, columna)).center())
+
+
+def filas_seleccionadas(vista):
+    return sorted(ix.row() for ix in vista.selectionModel().selectedRows())
+
+
 def visible_en_ventana(widget):
+
     """True si el widget se ve y su rectángulo entero cae dentro de la ventana."""
     if not widget.isVisible():
         return False
@@ -142,7 +164,21 @@ def color_pixel(widget, x, y):
     return imagen.pixelColor(int(x * escala), int(y * escala)).name()
 
 
+def alfa_pixel(widget, x, y):
+    """Opacidad (0-255) del píxel (x, y) del widget tal como se pinta."""
+    imagen = widget.grab().toImage()
+    escala = imagen.devicePixelRatio() or 1.0
+    return imagen.pixelColor(int(x * escala), int(y * escala)).alpha()
+
+
+def listas_desplegables(widget):
+    """Todos los QComboBox dentro de `widget`."""
+    from PySide6.QtWidgets import QComboBox
+    return widget.findChildren(QComboBox)
+
+
 def color_texto(widget):
+
     """Color #rrggbb con el que el widget pinta su texto (rol de primer plano de su paleta)."""
     return widget.palette().color(widget.foregroundRole()).name()
 

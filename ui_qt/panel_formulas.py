@@ -7,7 +7,9 @@ y se cierra deslizándose, y se cierra con su botón, con Esc o con un clic fuer
 
 Muestra título, explicación, la fórmula dibujada con matplotlib, la misma fórmula
 con los valores actuales y el resultado. No guarda fórmulas: cada vez la pide a
-services.formulas con el escenario vigente.
+services.formulas con el escenario vigente o, para una fila de «Comparar k y M», con
+el escenario de esa fila (`contexto`, p. ej. "k = 3", va en el título). Al cambiar el
+tema se regenera con el mismo escenario con que se abrió.
 """
 from PySide6.QtCore import QEasingCurve, QEvent, QPoint, QPropertyAnimation, QRect, Qt, Signal
 from PySide6.QtWidgets import (QApplication, QFrame, QHBoxLayout, QLabel, QPushButton, QScrollArea, QSizePolicy,
@@ -78,6 +80,8 @@ class PanelFormulas(QFrame):
         self.setObjectName("PanelFormulas")
         self.setAttribute(Qt.WA_StyledBackground, True)
         self.clave = None
+        self.contexto = None        # "k = 3" si muestra una fila de «Comparar k y M»; None: escenario vigente
+        self._nombre = None         # nombre de la métrica de esa fila (para el mensaje si no aplica)
         self.abierto = False
         self._esc = self._fmt = None
         self._imagenes = []
@@ -139,15 +143,15 @@ class PanelFormulas(QFrame):
         x = a.width() - ancho if abierto else a.width()
         return QRect(x, 0, ancho, a.height())
 
-    def abrir(self, esc, clave, fmt):
+    def abrir(self, esc, clave, fmt, contexto=None, nombre=None):
         if self.abierto:
-            self.mostrar(esc, clave, fmt)
+            self.mostrar(esc, clave, fmt, contexto, nombre)
             return
         self.abierto = True
         # Primero se dibujan las ecuaciones (matplotlib) y recién después se desliza el panel:
         # así la animación no pierde cuadros mientras se renderiza el contenido.
         self.setGeometry(self._geometria(False))
-        self.mostrar(esc, clave, fmt)
+        self.mostrar(esc, clave, fmt, contexto, nombre)
         self.show()
         self.raise_()
         self._animar(self._geometria(True).topLeft())
@@ -157,7 +161,7 @@ class PanelFormulas(QFrame):
         if not self.abierto:
             return
         self.abierto = False
-        self.clave = None
+        self.clave = self.contexto = None
         self._soltar_filtro()
         self._animar(self._geometria(False).topLeft())
         self.cerrado.emit()
@@ -216,9 +220,10 @@ class PanelFormulas(QFrame):
     # ------------------------------------------------------------------
     # Contenido
     # ------------------------------------------------------------------
-    def mostrar(self, esc, clave, fmt):
+    def mostrar(self, esc, clave, fmt, contexto=None, nombre=None):
         """Pide la fórmula al servicio con el escenario dado y la dibuja (reemplaza el contenido)."""
         self.clave, self._esc, self._fmt = clave, esc, fmt
+        self.contexto, self._nombre = contexto, nombre
         self._imagenes = []
         cuerpo = QWidget()
         cuerpo.setObjectName("CuerpoFormulas")
@@ -228,9 +233,17 @@ class PanelFormulas(QFrame):
         try:
             f = fm.formula(esc, clave, fmt)
         except fm.FormulaNoDisponible as e:
-            lc.addWidget(_texto(str(e), "nota"))
+            if contexto:
+                lc.addWidget(_texto(f"{nombre} para {contexto}", nombre="FormulaTitulo"))
+                aviso = _texto(f"{tema.ICONOS['aviso']}  {e} Elige otra métrica en «Condición de búsqueda».",
+                               "mensaje")
+                aviso.setProperty("nivel", "aviso")
+                lc.addWidget(aviso)
+            else:
+                lc.addWidget(_texto(str(e), "nota"))
         else:
-            lc.addWidget(_texto(f"{esc.kendall} · {esc.sigla}", "nota"))
+            fila = f"Fila {contexto} de «Comparar k y M» · " if contexto else ""
+            lc.addWidget(_texto(f"{fila}{esc.kendall} · {esc.sigla}", "nota"))
             self._agregar(lc, f, principal=True)
             for extra in f.extras:
                 self._agregar(lc, extra, principal=False)
@@ -239,9 +252,9 @@ class PanelFormulas(QFrame):
         self._ajustar_imagenes()
 
     def actualizar(self, esc, fmt):
-        """Vuelve a generar la fórmula abierta (nuevo cálculo, presentación o tema)."""
+        """Vuelve a generar la fórmula abierta (nuevo cálculo, presentación o tema) con su mismo contexto."""
         if self.clave and self.abierto and esc is not None:
-            self.mostrar(esc, self.clave, fmt)
+            self.mostrar(esc, self.clave, fmt, self.contexto, self._nombre)
 
     def repintar(self):
         if self.sombra is not None:
@@ -251,7 +264,9 @@ class PanelFormulas(QFrame):
 
     def _agregar(self, lc, f, principal):
         if principal:
-            lc.addWidget(_texto(f.titulo, nombre="FormulaTitulo"))
+            lc.addWidget(_texto(f"{f.titulo} para {self.contexto}" if self.contexto else f.titulo,
+                                nombre="FormulaTitulo"))
+
             lc.addWidget(_texto(f.explicacion, "subtitulo"))
         else:
             sep = QFrame()

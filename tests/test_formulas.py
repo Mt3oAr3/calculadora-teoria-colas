@@ -14,6 +14,7 @@ from matplotlib.mathtext import MathTextParser  # noqa: E402
 from domain import costos as dc  # noqa: E402
 from domain import modelos_colas as mc  # noqa: E402
 from services import calculadora_service as cs  # noqa: E402
+from services import comparacion_service as cmp  # noqa: E402
 from services import formulas as fm  # noqa: E402
 from services.tablas import Formateador  # noqa: E402
 
@@ -213,5 +214,64 @@ class TestCasosDeAceptacion(unittest.TestCase):
         self.assertAlmostEqual(self.valores(k=4, **base)("ct"), 259.62, places=2)
 
 
+class TestFormulasDeComparacion(unittest.TestCase):
+    """«Cómo se calculó» de una fila de «Comparar k y M»: la fórmula del escenario de esa fila da el
+    mismo valor que la tabla (valor_metrica) para cada métrica de la barra de búsqueda."""
+
+    # M/M/1, M/M/k y población finita, con costos
+    CASOS = {nombre: ESCENARIOS[nombre] for nombre in ("M/M/1", "M/M/3 con S=2", "M/M/2/6/6 con S=3")}
+
+    def test_todas_las_metricas_tienen_formula(self):
+        self.assertEqual(len(cmp.METRICAS), 13)
+        self.assertEqual(cmp.clave_formula(cmp.metrica_por_nombre("Probabilidad de esperar")), "Pw")
+        esc = escenario(**ESCENARIOS["M/M/2/6/6 con S=3"])
+        for m in cmp.METRICAS:
+            fm.formula(esc, cmp.clave_formula(m), Formateador())       # no lanza FormulaNoDisponible
+
+    def test_resultado_es_el_de_la_fila_en_k_y_M(self):
+        cond = cmp.leer_condicion(cmp.METRICA_INICIAL, "≤", "1", "hora")
+        for nombre, cambios in self.CASOS.items():
+            esc = escenario(Mmax=8, **cambios)
+            fmt = Formateador(4, "hora", esc.p.H)
+            filas = (cmp.comparar_k(esc, cond, fmt).tabla.filas, cmp.comparar_M(esc, cond, fmt).tabla.filas)
+            barridos = (("k", esc.barrido_k), ("M", esc.barrido_M))
+            self.assertTrue(esc.barrido_M or not esc.p.finita, nombre)
+            for (tipo, barrido), filas_tabla in zip(barridos, filas):
+                claves = {f.clave for f in filas_tabla}
+                for r in barrido:
+                    if not r["ok"]:
+                        continue
+                    clave = cmp.clave_fila(tipo, r[tipo])
+                    self.assertIn(clave, claves, f"{nombre}: la tabla no tiene la fila {clave}")
+                    self.assertEqual(cmp.leer_clave_fila(clave), (tipo, r[tipo]))
+                    der = cmp.escenario_de_fila(esc, tipo, r[tipo])
+                    self.assertIs(der.r, r)                       # el resultado del barrido, sin recalcular
+                    self.assertEqual(getattr(der.p, tipo), r[tipo])
+                    self.assertIn(f"M/M/{der.p.k}", der.kendall)
+                    for m in cmp.METRICAS:
+                        ctx = f"{nombre} · {clave} · {m.clave}"
+                        v = cmp.valor_metrica(r, m, der.p, "hora")
+                        try:
+                            res = fm.formula(der, cmp.clave_formula(m), fmt).resultado.dato
+                        except fm.FormulaNoDisponible:
+                            self.assertTrue(m.solo_finita and not der.p.finita, ctx)
+                            self.assertTrue(math.isnan(v), ctx)
+                            continue
+                        if math.isnan(v):
+                            self.assertTrue(math.isnan(res), ctx)        # p. ej. Wn cuando nadie espera
+                        else:
+                            self.assertTrue(math.isclose(res, v, rel_tol=1e-9, abs_tol=1e-9), f"{ctx}: {res} ≠ {v}")
+
+    def test_fila_inexistente(self):
+        esc = escenario()
+        with self.assertRaises(ValueError):
+            cmp.escenario_de_fila(esc, "k", 999)
+        with self.assertRaises(ValueError):
+            cmp.escenario_de_fila(esc, "M", 3)                       # población infinita: sin barrido de M
+        for clave in ("Lq", "cmp:x:3", "cmp:k:a", "cmp:k", None):
+            self.assertIsNone(cmp.leer_clave_fila(clave), clave)
+
+
 if __name__ == "__main__":
+
     unittest.main()

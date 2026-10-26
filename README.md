@@ -67,7 +67,10 @@ Supuestos relevantes:
     python main.py               interfaz clásica (Tkinter)
 
 Atajos de la interfaz moderna: Enter o F5 calcula, Ctrl+1…5 cambia de pestaña, Ctrl+T
-alterna el tema y Esc (o un clic fuera) cierra el panel «Cómo se calculó».
+alterna el tema, Ctrl+B (o el botón ☰ de la barra superior) oculta o muestra el panel de
+parámetros y Esc (o un clic fuera) cierra el panel «Cómo se calculó». El panel de parámetros
+reaparece solo si hay datos marcados en rojo, y su estado (visible y ancho) se recuerda entre
+sesiones.
 
 ## Ejecutar las pruebas
 
@@ -106,12 +109,17 @@ calculadora_colas/
 ├── ui_qt/                       Interfaz PySide6 (única capa que importa Qt)
 │   ├── app.py                   QApplication y arranque
 │   ├── ventana_principal.py     Ventana, flujo de cálculo, exportación y tema
-│   ├── barra_superior.py        Nombre de la app y botón de tema
+│   ├── barra_superior.py        Botón de parámetros (Ctrl+B), nombre de la app y botón de tema
+│   ├── transicion_panel.py      Animación del panel de parámetros con capturas (sin reacomodar por cuadro)
+
+
 │   ├── banner_desactualizado.py Único aviso de datos desactualizados (ámbar, con «Calcular»)
 │   ├── area_resultados.py       Encabezado del modelo y pestañas (un scroll por pestaña)
 │   ├── encabezado_modelo.py     Kendall, estado y mensaje de estabilidad
 │   ├── panel_entradas.py        Formulario en secciones plegables, errores por campo
 │   ├── seccion_plegable.py      Sección plegable del formulario
+│   ├── combo.py                 crear_combo(): todas las listas desplegables (lista redondeada, chevron propio)
+
 │   ├── tarjetas.py              Tarjetas de indicadores (una fila, compactas o filas parejas)
 │   ├── modelo_tabla.py          Adaptador Qt de Tabla (colores, orden por valor crudo)
 │   ├── vista_tabla.py           Tabla reutilizable con mensaje de vacío
@@ -146,6 +154,15 @@ resultado salen del escenario calculado (o de las mismas funciones del dominio q
 las tablas): no se recalculan con otra fórmula. Cada fila de las tablas lleva su `clave`
 (`Fila.clave`), y `tests/test_formulas.py` comprueba que el resultado de cada fórmula
 coincide con el valor de su fila y del dominio en todos los modelos.
+
+En **Comparar k y M**, un clic en una fila abre la fórmula de la métrica elegida en la
+condición de búsqueda para ese k o M (p. ej. «Wq para k = 3»). Las filas llevan la clave
+`cmp:k:3` / `cmp:M:7`; `comparacion_service.escenario_de_fila()` arma el escenario de esa fila
+con el mismo resultado del barrido (sin recalcular) y `clave_formula()` traduce la métrica a la
+clave de `formulas` (la identidad salvo «Probabilidad de esperar» → `Pw`). La fila queda
+resaltada; cambiar la métrica actualiza la fórmula de la misma fila y, si tras recalcular la fila
+ya no está, el panel se cierra.
+
 
 ## Flujo de datos
 

@@ -2,15 +2,20 @@
 vista_comparacion.py
 Página «Comparar k y M»: condición de búsqueda, leyenda de colores y las
 tablas en función de k y de M (calculadas en comparacion_service).
+
+Clic en una fila -> formula_pedida(escenario de esa fila, clave de la fórmula, métrica, fila):
+«Cómo se calculó» de la métrica elegida en la barra para ese k o M. La fila queda
+resaltada y, si cambia la métrica o el cálculo, se vuelve a pedir la fórmula de la misma
+fila; si la fila ya no está, fila_perdida (la ventana cierra el panel).
 """
-from PySide6.QtCore import Qt
-from PySide6.QtWidgets import (QComboBox, QHBoxLayout, QLabel, QLineEdit, QPushButton, QVBoxLayout,
-                               QWidget)
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtWidgets import QHBoxLayout, QLabel, QLineEdit, QPushButton, QVBoxLayout, QWidget
 
 from domain.errores import ErrorEntrada
 from services import comparacion_service as cmp
 
 from . import tema
+from .combo import crear_combo
 from .info_box import InfoBox
 from .vista_tabla import VistaTabla, encabezado_pagina
 
@@ -32,6 +37,8 @@ def _muestra(tipo, texto):
 
 
 class PaginaComparacion(QWidget):
+    formula_pedida = Signal(object, str, str, str)    # escenario de la fila, clave, métrica, fila ("k = 3")
+    fila_perdida = Signal()                           # la fila del panel ya no está en la comparación
 
     def __init__(self, unidad_tiempo, padre=None):
         super().__init__(padre)
@@ -39,6 +46,7 @@ class PaginaComparacion(QWidget):
         self.esc = self.fmt = None
         self._unidad_tiempo = unidad_tiempo      # función que devuelve la unidad elegida
         self.res_k = self.res_M = None
+        self.fila = None                         # (tipo, valor) de la fila con el panel abierto, o None
 
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
@@ -52,15 +60,11 @@ class PaginaComparacion(QWidget):
         lay.addWidget(lbl)
         fila = QHBoxLayout()
         fila.setSpacing(8)
-        self.cb_metrica = QComboBox()
-        self.cb_metrica.addItems([m.nombre for m in cmp.METRICAS])
-        self.cb_metrica.setCurrentText(cmp.METRICA_INICIAL)
-        self.cb_metrica.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
-        self.cb_metrica.setMinimumContentsLength(14)
-        self.cb_metrica.view().setMinimumWidth(self.cb_metrica.view().sizeHintForColumn(0) + 24)
-        self.cb_op = QComboBox()
-        self.cb_op.addItems(cmp.OPERADORES)
-        self.cb_op.setCurrentText("≤")
+        self.cb_metrica = crear_combo([m.nombre for m in cmp.METRICAS], cmp.METRICA_INICIAL, minimo_contenido=14)
+        # Cambiar la métrica con el panel abierto actualiza la fórmula de la fila (no cierra el panel)
+        self.cb_metrica.setProperty("abre_formula", True)
+        self.cb_op = crear_combo(cmp.OPERADORES, "≤")
+
         self.ent_lim = QLineEdit("0,5")
         self.ent_lim.setFixedWidth(70)
         self.ent_lim.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
@@ -96,6 +100,8 @@ class PaginaComparacion(QWidget):
         lay.addWidget(self.tabla_k)
         lay.addWidget(self.tabla_M)
         lay.addStretch(1)
+        for tabla in (self.tabla_k, self.tabla_M):
+            tabla.fila_clicada.connect(self._fila_clicada)
 
     def mostrar(self, esc, fmt):
         self.esc, self.fmt = esc, fmt
@@ -120,6 +126,7 @@ class PaginaComparacion(QWidget):
             self.tabla_M.poner_titulo("En función de M")
             self.tabla_k.limpiar("Corrige la condición para ver la comparación.")
             self.tabla_M.limpiar("")
+            self._perder_fila()
             return
         self._marcar(False)
         self.lbl_err.hide()
@@ -130,6 +137,43 @@ class PaginaComparacion(QWidget):
         self.tabla_k.mostrar(self.res_k.tabla, self.fmt)
         self.tabla_M.poner_titulo("En función de M:  " + self.res_M.resumen)
         self.tabla_M.mostrar(self.res_M.tabla, self.fmt)
+        if self.fila is not None:
+            self._pedir_formula()
+
+    # ------------------------------------------------------------------
+    # «Cómo se calculó» de una fila
+    # ------------------------------------------------------------------
+    def _fila_clicada(self, clave):
+        fila = cmp.leer_clave_fila(clave)
+        if fila is not None and self.esc is not None:
+            self.fila = fila
+            self._pedir_formula()
+
+    def _pedir_formula(self):
+        """Pide la fórmula de la métrica de la barra para la fila elegida (con el escenario de esa fila)."""
+        tipo, valor = self.fila
+        tabla = self.tabla_k if tipo == "k" else self.tabla_M
+        try:
+            metrica = cmp.metrica_por_nombre(self.cb_metrica.currentText())
+            esc = cmp.escenario_de_fila(self.esc, tipo, valor)
+        except (KeyError, ValueError):
+            self._perder_fila()
+            return
+        if not tabla.seleccionar_clave(cmp.clave_fila(tipo, valor)):
+            self._perder_fila()
+            return
+        self.formula_pedida.emit(esc, cmp.clave_formula(metrica), metrica.nombre, cmp.describir_fila(tipo, valor))
+
+    def _perder_fila(self):
+        if self.fila is not None:
+            self.soltar_fila()
+            self.fila_perdida.emit()
+
+    def soltar_fila(self):
+        """El panel se cerró o pasó a otra fórmula: la fila deja de estar resaltada."""
+        self.fila = None
+        self.tabla_k.quitar_seleccion()
+        self.tabla_M.quitar_seleccion()
 
     def tablas_para_exportar(self):
         """Tablas «Variando k» y «Variando M». Lanza ErrorEntrada si la condición no es válida."""
@@ -139,7 +183,9 @@ class PaginaComparacion(QWidget):
 
     def limpiar(self, mensaje):
         self.esc = None
+        self.fila = None
         self.res_k = self.res_M = None
+
         self.tabla_k.limpiar(mensaje)
         self.tabla_M.limpiar("")
 

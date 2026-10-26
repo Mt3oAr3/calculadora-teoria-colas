@@ -34,6 +34,7 @@ class TestVentanaQt(unittest.TestCase):
         cls.sp.procesar()
 
     def setUp(self):
+        self.v.mostrar_parametros(True, animar=False)
         self.v.formulas.cerrar()
         self.v.panel.restablecer()
         self.v.calcular()
@@ -236,7 +237,279 @@ class TestVentanaQt(unittest.TestCase):
         self.assertLessEqual(abs(centro_boton - centro_texto), 2)
         self.assertEqual(tema.LAYOUT["banner_margen"], (m.left(), m.top(), m.right(), m.bottom()))
 
+    # ------------------------------------------------------------------
+    # Panel de parámetros ocultable (Ctrl+B)
+    # ------------------------------------------------------------------
+    def test_alternar_oculta_y_muestra_parametros(self):
+        v, sp = self.v, self.sp
+        ancho = v.panel.width()
+        sp.clic(v.barra.btn_parametros)
+        sp.esperar(400)
+        self.assertFalse(v.parametros_visibles or v.panel.isVisible())
+        self.assertFalse(v.barra.btn_parametros.isChecked())
+        self.assertEqual(v.area.width(), v.divisor.width())           # resultados a todo el ancho
+        # F5 sigue calculando con el panel oculto, y el panel no reaparece
+        v.panel.poner("k", "2")
+        v.activateWindow()
+        sp.tecla(v, "F5")
+        sp.procesar()
+        self.assertEqual(v.esc.p.k, 2)
+        self.assertFalse(v.panel.isVisible())
+        # El panel «Cómo se calculó» se ancla al área ensanchada
+        self._abrir_formula()
+        geo, area = v.formulas.geometry(), v.area
+        self.assertEqual(geo.right(), area.rect().right())
+        self.assertLessEqual(abs(geo.width() - 0.40 * area.width()), 0.05 * area.width() + 1)
+        v.formulas.cerrar()
+        sp.esperar(300)
+        sp.tecla(v, "B", ctrl=True)                                   # Ctrl+B lo vuelve a mostrar
+        sp.esperar(400)
+        self.assertTrue(v.parametros_visibles and v.panel.isVisible())
+        self.assertTrue(v.barra.btn_parametros.isChecked())
+        self.assertEqual(v.panel.width(), ancho)                       # con el último ancho que tenía
+        self.assertEqual(v.panel.width() + v.divisor.handleWidth() + v.area.width(), v.divisor.width())
+
+    def test_calcular_con_error_reabre_parametros(self):
+        v = self.v
+        v.mostrar_parametros(False, animar=False)
+        self.assertTrue(v.panel.isHidden())
+        v.panel.poner("k", "abc")
+        v.activateWindow()
+        v.calcular()
+        self.sp.esperar(400)
+        self.assertTrue(v.parametros_visibles and v.panel.isVisible())
+        campo = v.panel.widgets["k"]
+        self.assertTrue(campo.property("error"))
+        self.assertTrue(campo.isVisible())
+        self.assertTrue(campo.hasFocus())                 # el foco llega cuando el panel terminó de aparecer
+
+    def test_animacion_no_reacomoda_en_cada_cuadro(self):
+        """Mientras dura la animación solo se mueven capturas; el layout real cambia una vez, al final."""
+        v, sp = self.v, self.sp
+        v.area.ir_a(4)                                   # pestaña pesada: gráfica de matplotlib
+        sp.procesar()
+        area, panel = v.area.width(), v.panel.width()
+        v.mostrar_parametros(False)
+        anchos = set()
+        for _ in range(6):
+            sp.esperar(20)
+            if v.transicion.isVisible():
+                anchos.add(v.transicion.ancho)
+                self.assertEqual((v.area.width(), v.panel.width()), (area, panel))
+        self.assertGreaterEqual(len(anchos), 3, "la animación no avanzó por cuadros")
+        sp.esperar(400)
+        self.assertFalse(v.transicion.isVisible())
+        self.assertEqual(v.area.width(), v.divisor.width())
+
+    def _invertir(self, desde_visible):
+        from ui_qt.ventana_principal import ajustes
+        v, sp = self.v, self.sp
+        v.mostrar_parametros(desde_visible, animar=False)
+        ancho = v._ancho_panel
+        v.activateWindow()
+        sp.tecla(v, "B", ctrl=True)
+        sp.esperar(70)
+        a_mitad = v.transicion.ancho
+        self.assertTrue(0 < a_mitad < ancho, a_mitad)
+        sp.tecla(v, "B", ctrl=True)                      # otra vez a mitad de camino: se invierte
+        sp.esperar(15)
+        siguiente = v.transicion.ancho
+        self.assertLessEqual(abs(siguiente - a_mitad), ancho // 4, "salto al invertir")
+        sp.esperar(400)
+        self.assertEqual(v.parametros_visibles, desde_visible)
+        self.assertEqual(v.panel.isVisible(), desde_visible)
+        self.assertEqual(v.barra.btn_parametros.isChecked(), desde_visible)
+        self.assertFalse(v.transicion.isVisible())
+        self.assertEqual(ajustes().value("panel/visible"), "true" if desde_visible else "false")
+        if desde_visible:
+            self.assertEqual(v.panel.width(), ancho)
+        else:
+            self.assertEqual(v.area.width(), v.divisor.width())
+
+    def test_ctrl_b_a_mitad_invierte_al_ocultar(self):
+        self._invertir(desde_visible=True)
+
+    def test_ctrl_b_a_mitad_invierte_al_mostrar(self):
+        self._invertir(desde_visible=False)
+
+    def test_panel_de_formulas_abierto_no_se_desacomoda(self):
+        v, sp = self.v, self.sp
+        self._abrir_formula()
+        for visible in (False, True):
+            v.mostrar_parametros(visible)
+            sp.esperar(400)
+            self.assertTrue(v.formulas.abierto)
+            geo, area = v.formulas.geometry(), v.area
+            self.assertEqual(geo.right(), area.rect().right())
+            self.assertEqual(geo.height(), area.height())
+            self.assertLessEqual(abs(geo.width() - 0.40 * area.width()), 0.05 * area.width() + 1)
+            self.assertEqual(v.formulas.sombra.geometry().right() + 1, geo.left())
+
+
+    def test_ir_a_costos_reabre_parametros(self):
+        v = self.v
+        v.mostrar_parametros(False, animar=False)
+        v.area.ir_a_costos.emit()
+        self.sp.esperar(400)
+        self.assertTrue(v.panel.isVisible())
+        self.assertTrue(v.panel.secciones["costos"].cuerpo.isVisible())
+
+    def test_parametros_recordados_entre_sesiones(self):
+        v, sp = self.v, self.sp
+        v.divisor.moveSplitter(v.panel.minimumWidth() + 40, 1)
+        sp.procesar()
+        ancho = v.panel.width()
+        v.mostrar_parametros(False, animar=False)
+        from ui_qt.ventana_principal import VentanaPrincipal
+        otra = VentanaPrincipal()
+        try:
+            self.assertFalse(otra.parametros_visibles)
+            self.assertTrue(otra.panel.isHidden())
+            self.assertFalse(otra.barra.btn_parametros.isChecked())
+            otra.resize(1366, 768)
+            otra.show()
+            otra.mostrar_parametros(True, animar=False)
+            sp.procesar()
+            self.assertEqual(otra.panel.width(), ancho)
+        finally:
+            otra.formulas.cerrar()
+            otra.close()                     # guarda «visible»: no afecta a las demás pruebas
+            otra.deleteLater()
+            sp.procesar()
+
+    # ------------------------------------------------------------------
+    # «Cómo se calculó» desde una fila de «Comparar k y M»
+    # ------------------------------------------------------------------
+    def _titulo_formula(self):
+        return [w.text() for w in self.v.formulas.findChildren(type(self.v.estado))
+                if w.objectName() == "FormulaTitulo"][0]
+
+    def _textos_formula(self):
+        return " ".join(w.text() for w in self.v.formulas.findChildren(type(self.v.estado)))
+
+    def test_clic_en_fila_de_comparacion_abre_su_formula(self):
+        v, sp = self.v, self.sp
+        pag, f = v.p_comparacion, v.formulas
+        v.panel.poner("lam", "40")                  # M/M/k: la tabla de k empieza en k = 3
+        v.calcular()
+        v.area.ir_a(3)
+        pag.cb_metrica.setCurrentText("Wq (tiempo en cola)")
+        sp.procesar()
+        vista = pag.tabla_k.vista
+        k = int(sp.celda(vista.model(), 1, 0))
+        sp.clic_fila(vista, 1)
+        sp.esperar(400)
+        self.assertTrue(f.abierto and f.isVisible())
+        self.assertEqual((f.clave, f.contexto), ("Wq", f"k = {k}"))
+        self.assertEqual(f._esc.p.k, k)                               # escenario de la fila, no el vigente
+        self.assertIsNot(f._esc, v.esc)
+        self.assertEqual(f._esc.r["Wq"], next(r for r in v.esc.barrido_k if r["k"] == k)["Wq"])
+        self.assertIn(f"Wq para k = {k}", self._titulo_formula())
+        self.assertIn(f"M/M/{k}", self._textos_formula())
+        self.assertEqual(sp.filas_seleccionadas(vista), [1])          # la fila queda resaltada
+
+        # Otra métrica en la barra con el panel abierto: misma fila, nueva fórmula
+        pag.cb_metrica.setCurrentText("Probabilidad de esperar")
+        sp.procesar()
+        self.assertTrue(f.abierto)
+        self.assertEqual((f.clave, f.contexto, f._esc.p.k), ("Pw", f"k = {k}", k))
+        self.assertEqual(sp.filas_seleccionadas(vista), [1])
+
+        # Clic en otra fila: cambia la fórmula en vez de cerrar el panel
+        k0 = int(sp.celda(vista.model(), 0, 0))
+        sp.clic_fila(vista, 0)
+        sp.esperar(300)
+        self.assertTrue(f.abierto)
+        self.assertEqual((f.contexto, f._esc.p.k), (f"k = {k0}", k0))
+
+        # Cambio de tema y de presentación: se regenera con el escenario de la fila
+        v.aplicar_tema("oscuro")
+        try:
+            self.assertEqual((f.contexto, f._esc.p.k), (f"k = {k0}", k0))
+        finally:
+            v.aplicar_tema("claro")
+        v.panel.poner("dec", "2")
+        sp.procesar()
+        self.assertEqual((f.contexto, f._esc.p.k, f._fmt.decimales), (f"k = {k0}", k0, 2))
+
+        # Métrica que no aplica (solo población finita): mensaje claro, sin fallar
+        pag.cb_metrica.setCurrentText("Fracción de unidades operando (finita)")
+        sp.procesar()
+        self.assertTrue(f.abierto)
+        self.assertIn(f"para k = {k0}", self._titulo_formula())
+        self.assertIn("solo aplica a población finita", self._textos_formula())
+
+        # Recalcular: si la fila sigue en la comparación se regenera con su escenario (del nuevo cálculo)...
+        pag.cb_metrica.setCurrentText("Wq (tiempo en cola)")
+        v.panel.poner("cS", "10")
+        v.calcular()
+        sp.esperar(300)
+        self.assertTrue(f.abierto)
+        self.assertEqual((f.contexto, f._esc.p.k, f._esc.p.cfg), (f"k = {k0}", k0, v.esc.p.cfg))
+        self.assertIsNot(f._esc, v.esc)
+        # ... y si ya no está (k máximo menor: la tabla llega hasta k = 7), el panel se cierra
+        ultima = vista.model().rowCount() - 1
+        self.assertEqual(int(sp.celda(vista.model(), ultima, 0)), 10)
+        sp.clic_fila(vista, ultima)
+        sp.esperar(300)
+        self.assertEqual(f.contexto, "k = 10")
+        v.panel.poner("kmax", "1")
+        v.calcular()
+        sp.esperar(400)
+        self.assertFalse(f.abierto)
+        self.assertIsNone(pag.fila)
+        self.assertEqual(sp.filas_seleccionadas(vista), [])
+
+        # Clic fuera: se cierra y la fila deja de estar resaltada
+        sp.clic_fila(vista, 0)
+        sp.esperar(300)
+        self.assertTrue(f.abierto)
+        self.assertEqual(sp.filas_seleccionadas(vista), [0])
+        sp.clic(v.panel.secciones["modelo"].cabecera)
+
+        sp.esperar(400)
+        self.assertFalse(f.abierto)
+        self.assertIsNone(pag.fila)
+        self.assertEqual(sp.filas_seleccionadas(vista), [])
+
+    # ------------------------------------------------------------------
+    # Listas desplegables (ui_qt/combo.py)
+
+    # ------------------------------------------------------------------
+    def test_listas_desplegables_con_estilo_propio(self):
+        from ui_qt import tema
+        from ui_qt.combo import Combo
+        sp, v = self.sp, self.v
+        listas = sp.listas_desplegables(v)
+        self.assertGreaterEqual(len(listas), 8)
+        for c in listas:
+            self.assertIsInstance(c, Combo, "todas las listas se crean con combo.crear_combo")
+            self.assertEqual(type(c.itemDelegate()).__name__, "QStyledItemDelegate")
+        combo = v.p_comparacion.cb_metrica
+        v.area.ir_a(3)
+        try:
+            for nombre in ("claro", "oscuro"):
+                v.aplicar_tema(nombre)
+                sp.procesar()
+                combo.showPopup()
+                sp.esperar(200)
+                lista = combo.view().window()
+                self.assertTrue(combo.abierto)
+                self.assertEqual(sp.alfa_pixel(lista, 0, 0), 0, f"{nombre}: esquina sin redondear")
+                self.assertEqual(sp.color_pixel(lista, 0, lista.height() // 2), tema.color("borde_fuerte"), nombre)
+                self.assertEqual(sp.color_pixel(lista, lista.width() // 2, 2), tema.color("superficie_elevada"),
+                                 nombre)
+                combo.hidePopup()
+                sp.procesar()
+                self.assertFalse(combo.abierto)
+        finally:
+            combo.hidePopup()
+            v.aplicar_tema("claro")
+            sp.procesar()
+
     def test_sombra_del_panel(self):
+
+
         self._abrir_formula()
         f = self.v.formulas
         self.assertIsNone(f.graphicsEffect())                 # sin efecto: nada se redibuja fuera de pantalla

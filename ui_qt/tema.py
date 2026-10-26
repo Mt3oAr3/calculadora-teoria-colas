@@ -114,6 +114,12 @@ PARES_CONTRASTE = [
     ("serie_2", "grafica_fondo", 3.0, "segunda serie de las gráficas"),
     ("serie_3", "grafica_fondo", 3.0, "tercera serie de las gráficas"),
     ("grafica_ejes", "grafica_fondo", 3.0, "ejes de las gráficas"),
+    ("texto_2", "barra", 4.5, "botón de parámetros en la barra superior"),
+    ("primario_texto", "primario_tinte", 4.5, "botón de parámetros con el panel visible"),
+    ("texto", "superficie_elevada", 4.5, "opciones de las listas desplegables"),
+    ("texto", "superficie_hover", 4.5, "opción de una lista con el cursor encima"),
+    ("texto", "primario_tinte", 4.5, "opción elegida de una lista desplegable"),
+    ("texto_2", "superficie_elevada", 3.0, "flecha (chevron) de las listas desplegables"),
 ]
 
 NOMBRES = {"claro": "Tema claro", "oscuro": "Tema oscuro"}
@@ -133,7 +139,9 @@ LAYOUT = {
     "banner_ms": 160, "banner_margen": (16, 11, 16, 11), "banner_espacio": 14,
     "pagina_margen": (0, 12, 0, 12),
     # Márgenes del área de resultados y de la barra superior
-    "area_margen": (16, 12, 16, 0), "barra_superior_margen": (16, 6, 12, 6),
+    "area_margen": (16, 12, 16, 0), "barra_superior_margen": (10, 6, 12, 6), "barra_superior_espacio": 6,
+    # Panel de parámetros ocultable (Ctrl+B): duración de la animación y ancho máximo recordado
+    "panel_ms": 200, "panel_fraccion_max": 0.5,
     # Panel superpuesto «Cómo se calculó»
     "drawer_fraccion": 0.40, "drawer_min": 360, "drawer_max": 620, "drawer_ms": 180, "drawer_sombra": 28,
     "drawer_margen": 18, "drawer_espacio": 14,
@@ -148,6 +156,9 @@ LAYOUT = {
     "form_margen_cabecera": (16, 14, 16, 8), "form_margen_cuerpo": (12, 6, 12, 12),
     "seccion_margen": (12, 10, 12, 12), "form_ancho_campo": 72, "form_ancho_unidad": 80,
     "form_relleno_combo": 44,
+    # Listas desplegables (ui_qt/combo.py): chevron propio y ancho extra de la lista emergente
+    "combo_flecha_ancho": 9, "combo_flecha_grosor": 1.6, "combo_flecha_margen": 11, "combo_lista_extra": 40,
+    "combo_lista_margen": 5,
     # Tablas
     "tabla_alto_fila": 30, "tabla_relleno_celda": 16, "tabla_relleno_vertical": 12,
     "tabla_ancho_min_texto": 140, "tabla_ancho_max": 420,
@@ -209,6 +220,13 @@ QSplitter::handle:hover { background: $borde; }
 #BarraSuperior { background: $barra; border-bottom: 1px solid $borde; }
 #Marca { font-size: 11pt; font-weight: 600; color: $texto; }
 #MarcaSub { color: $texto_3; font-size: 9pt; }
+QPushButton#BotonParametros {
+    background: transparent; color: $texto_2; border: 1px solid transparent; border-radius: 8px;
+    padding: 3px 10px; font-size: 12pt;
+}
+QPushButton#BotonParametros:hover { background: $superficie_hover; color: $texto; }
+QPushButton#BotonParametros:checked { background: $primario_tinte; color: $primario_texto; }
+QPushButton#BotonParametros:checked:hover { border-color: $primario_texto; }
 
 /* Banner global: datos cambiados sin recalcular (siempre ámbar, nunca rojo de marca) */
 #Banner { background: $advertencia_fondo; border-bottom: 1px solid $advertencia_borde; }
@@ -267,11 +285,23 @@ QLineEdit, QComboBox, QSpinBox {
 QLineEdit:focus, QComboBox:focus { border: 1px solid $primario_texto; }
 QLineEdit:disabled, QComboBox:disabled { background: $superficie; color: $texto_3; border-color: $borde_fuerte; }
 QLineEdit[error="true"] { border: 1px solid $error; background: $error_fondo; }
-QComboBox::drop-down { border: none; width: 22px; }
+/* Listas desplegables (ui_qt/combo.py): la flecha es un chevron propio, la lista emergente un
+   contenedor redondeado (#PopupCombo, ventana translúcida) y cada opción un ::item */
+QComboBox { combobox-popup: 0; padding-right: 28px; }
+QComboBox::drop-down { border: none; width: 28px; }
+QComboBox::down-arrow { image: none; width: 0px; height: 0px; }
+#PopupCombo { background: $superficie_elevada; border: 1px solid $borde_fuerte; border-radius: 8px; }
+
 QComboBox QAbstractItemView {
-    background: $superficie_elevada; border: 1px solid $borde_fuerte; selection-background-color: $primario_tinte;
-    selection-color: $texto; outline: 0; padding: 4px;
+    background: transparent; border: none; outline: 0; padding: 0px; color: $texto;
+    selection-background-color: $primario_tinte; selection-color: $texto;
 }
+QComboBox QAbstractItemView::item {
+    min-height: 24px; padding: 4px 10px; border: none; border-radius: 6px; color: $texto;
+}
+QComboBox QAbstractItemView::item:hover { background: $superficie_hover; color: $texto; }
+QComboBox QAbstractItemView::item:selected { background: $primario_tinte; color: $texto; }
+
 QRadioButton, QCheckBox { spacing: 6px; background: transparent; }
 QRadioButton::indicator, QCheckBox::indicator {
     width: 14px; height: 14px; border: 1px solid $borde_control; background: $superficie_elevada;
