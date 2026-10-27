@@ -331,20 +331,22 @@ def tabla_resultados(esc):
 
 
 def tabla_probabilidades(esc, a, b):
-    cols = [Columna("Probabilidad", False), Columna("Significado", False), Columna("Valor")]
+    """Probabilidad | Valor | Valor (%) | Significado: las cifras junto a su etiqueta y el texto largo al final."""
+    cols = [Columna("Probabilidad", False), Columna("Valor"), Columna("Valor (%)"), Columna("Significado", False)]
     t = Tabla("Probabilidades", cols, mensaje_vacio="Sin resultados: el sistema es inestable.")
     if esc.r["ok"]:
-        t.filas = [Fila([s, sig, Valor(v)], (), f"prob:{i}:{a}:{b}")
+        t.filas = [Fila([s, Valor(v), Valor(v, "pct"), sig], (), f"prob:{i}:{a}:{b}")
                    for i, (s, sig, v) in enumerate(mc.probabilidades_rango(esc.r, a, b))]
     return t
 
 
 def tabla_distribucion(esc):
-    cols = [Columna("n"), Columna("En cola"), Columna("Pn"), Columna("P(≤ n)"), Columna("P(≥ n)")]
+    """Solo Pn lleva su porcentaje: las acumuladas en % repetirían cifras y harían la tabla menos legible."""
+    cols = [Columna("n"), Columna("En cola"), Columna("Pn"), Columna("Pn (%)"), Columna("P(≤ n)"), Columna("P(≥ n)")]
     t = Tabla("Distribución de probabilidad", cols, mensaje_vacio="Sin resultados: el sistema es inestable.")
     if esc.r["ok"]:
         kk = esc.r["k_ef"]
-        t.filas = [Fila([Valor(n, "entero"), Valor(c, "entero"), Valor(pn), Valor(ac), Valor(sup)],
+        t.filas = [Fila([Valor(n, "entero"), Valor(c, "entero"), Valor(pn), Valor(pn, "pct"), Valor(ac), Valor(sup)],
                         ("actual",) if n == kk else (), f"dist:{n}")
                    for n, c, pn, ac, sup in mc.distribucion(esc.r)]
     return t

@@ -9,7 +9,7 @@ sin recalcular) para que «Cómo se calculó» explique la métrica elegida en e
 (clave_formula() traduce la métrica a la clave de services.formulas).
 """
 import math
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 
 from domain import costos as dc
 from domain import modelos_colas as mc
@@ -146,12 +146,27 @@ def cumple(r, cond, p):
     return v <= cond.limite + _TOL if cond.operador == "≤" else v >= cond.limite - _TOL
 
 
+@dataclass(frozen=True)
+class Destacado:
+    """Dato clave sobre la tabla («Menor k que cumple: 2»); `valor` es el k o M de su fila (None: no hay)."""
+    texto: str
+    tipo: str                   # "k" o "M"
+    valor: int | None
+    detalle: str = ""           # texto completo (p. ej. con la condición), para la ayuda emergente
+
+
 @dataclass
 class ResultadoComparacion:
     tabla: Tabla
     resumen: str
     valor_que_cumple: int | None = None     # k menor (o M mayor) que cumple la condición
     k_menor_costo: int | None = None
+    destacados: list = field(default_factory=list)
+
+
+def _columnas(titulos, clave):
+    """La columna de k (o M) y la de CT van en negrita: son las que se leen primero."""
+    return [Columna(t, destacada=t in (clave, "CT")) for t in titulos]
 
 
 def _encabezado_te(p):
@@ -167,7 +182,7 @@ def comparar_k(esc, cond, fmt):
     if p.finita:
         titulos.append("% operando")
     titulos += ["CT(S)", _encabezado_te(p), "CT"]
-    tabla = Tabla("Variando k", [Columna(t) for t in titulos])
+    tabla = Tabla("Variando k", _columnas(titulos, "k"))
 
     filas = [(r, dc.costos(r, p.H, p.cfg)) for r in esc.barrido_k if r["ok"]]
     hay_costos = any(c["ct"] > 0 for _, c in filas)
@@ -187,13 +202,26 @@ def comparar_k(esc, cond, fmt):
         celdas += [Valor(c["ct_s"], "dinero"), Valor(c["ct_te"] + c["ct_ocio"], "dinero"), Valor(c["ct"], "dinero")]
         tabla.filas.append(Fila(celdas, etiquetas, clave_fila("k", r["k"])))
 
-    partes = [] if p.finita else [f"Mínimo por estabilidad: k = {mc.k_minimo_estable(p.lam, p.mu)}."]
-    partes.append(f"Menor k con {cond.describir()}: k = {primero}." if primero is not None
-                  else f"Ningún k del rango cumple {cond.describir()}.")
+    partes, destacados = [], []
+    if not p.finita:
+        k_min = mc.k_minimo_estable(p.lam, p.mu)
+        partes.append(f"Mínimo por estabilidad: k = {k_min}.")
+        destacados.append(Destacado(f"Mínimo por estabilidad: k = {k_min}", "k", k_min,
+                                    "Menor número de servidores con ρ = λ/(kμ) < 1."))
+    if primero is not None:
+        partes.append(f"Menor k con {cond.describir()}: k = {primero}.")
+        destacados.insert(0, Destacado(f"Menor k que cumple: {primero}", "k", primero,
+                                       f"Menor k con {cond.describir()}."))
+    else:
+        partes.append(f"Ningún k del rango cumple {cond.describir()}.")
+        destacados.insert(0, Destacado("Ningún k cumple", "k", None, f"Ningún k del rango cumple {cond.describir()}."))
     k_mejor = filas[i_mejor][0]["k"] if i_mejor >= 0 else None
     if k_mejor is not None:
-        partes.append(f"Menor costo total: k = {k_mejor} ({fmt.dinero(filas[i_mejor][1]['ct'])} por día).")
-    return ResultadoComparacion(tabla, "  ".join(partes), primero, k_mejor)
+        ct = fmt.dinero(filas[i_mejor][1]["ct"])
+        partes.append(f"Menor costo total: k = {k_mejor} ({ct} por día).")
+        destacados.insert(1, Destacado(f"Menor costo total: k = {k_mejor} ({ct}/día)", "k", k_mejor,
+                                       "k con el menor costo total diario CT."))
+    return ResultadoComparacion(tabla, "  ".join(partes), primero, k_mejor, destacados)
 
 
 def comparar_M(esc, cond, fmt):
@@ -202,7 +230,7 @@ def comparar_M(esc, cond, fmt):
     u = fmt.abrev_tiempo
     titulos = ["M", "P0", "P(n<k)", "P(esperar)", "Lq", "L", "M − L", "% operando",
                f"Wq ({u})", f"W ({u})", "CT(S)", _encabezado_te(p), "CT"]
-    tabla = Tabla("Variando M", [Columna(t) for t in titulos],
+    tabla = Tabla("Variando M", _columnas(titulos, "M"),
                   mensaje_vacio="La tabla en función de M solo aplica a población finita.")
     if not p.finita:
         return ResultadoComparacion(tabla, "Tabla en función de M: solo para población finita.")
@@ -219,7 +247,11 @@ def comparar_M(esc, cond, fmt):
             Valor(r["Wq"], "tiempo_num"), Valor(r["W"], "tiempo_num"),
             Valor(c["ct_s"], "dinero"), Valor(c["ct_te"] + c["ct_ocio"], "dinero"), Valor(c["ct"], "dinero"),
         ], etiquetas, clave_fila("M", r["M"])))
+    if ultimo is not None:
+        resumen = f"Mayor M con {cond.describir()} (k = {p.k}): M = {ultimo}."
+        destacado = Destacado(f"Mayor M que cumple: {ultimo}", "M", ultimo, resumen)
+    else:
+        resumen = f"Ningún M del rango cumple {cond.describir()}."
+        destacado = Destacado("Ningún M cumple", "M", None, resumen)
+    return ResultadoComparacion(tabla, resumen, ultimo, destacados=[destacado])
 
-    resumen = (f"Mayor M con {cond.describir()} (k = {p.k}): M = {ultimo}." if ultimo is not None
-               else f"Ningún M del rango cumple {cond.describir()}.")
-    return ResultadoComparacion(tabla, resumen, ultimo)

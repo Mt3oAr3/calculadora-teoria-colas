@@ -2,21 +2,65 @@
 vista_graficas.py
 Página «Gráficas»: índice por categoría, figura de visualization.graficas_colas
 incrustada con FigureCanvasQTAgg y acciones para guardar PNG.
+
+El panel izquierdo (índice y botones) mide lo que su texto más largo: nada se corta ni se
+elide. El divisor no lo deja más angosto; al achicar la página se achica primero la gráfica.
 """
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg, NavigationToolbar2QT
 from matplotlib.figure import Figure
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QEvent, Qt, Signal
+from PySide6.QtGui import QPainter, QResizeEvent
 from PySide6.QtWidgets import (QCheckBox, QFileDialog, QFrame, QHBoxLayout, QMessageBox, QPushButton,
                                QSplitter, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget)
 
 from services import exportacion_service as ex
 from visualization import graficas_colas as gc
 
-from . import tema
+from . import animacion, tema
 from .info_box import InfoBox
 from .vista_tabla import encabezado_pagina
 
 ROL_GID = Qt.UserRole
+
+
+class _Lienzo(FigureCanvasQTAgg):
+    """
+    Lienzo de matplotlib que no se redibuja en cada cuadro de la animación de los paneles: mientras
+    dura muestra el último render escalado al tamaño del cuadro y redibuja una vez al terminar.
+    """
+
+    def __init__(self, figura):
+        super().__init__(figura)
+        self._foto = None
+        self._diferido = False
+        animacion.indicador.cambio.connect(self._animacion_cambio)
+
+    def _animacion_cambio(self, activa):
+        if activa:
+            self._foto = self.grab() if self.isVisible() else None
+            return
+        self._foto = None
+        if self._diferido:
+            self._diferido = False
+            super().resizeEvent(QResizeEvent(self.size(), self.size()))    # redimensiona la figura y redibuja
+        self.update()
+
+    def resizeEvent(self, e):
+        if self._foto is not None:
+            self._diferido = True
+            QWidget.resizeEvent(self, e)
+            self.update()
+            return
+        super().resizeEvent(e)
+
+    def paintEvent(self, e):
+        if self._foto is None:
+            super().paintEvent(e)
+            return
+        p = QPainter(self)
+        p.setRenderHint(QPainter.SmoothPixmapTransform)
+        p.drawPixmap(self.rect(), self._foto)
+        p.end()
 
 
 class PaginaGraficas(QWidget):
@@ -35,16 +79,17 @@ class PaginaGraficas(QWidget):
                                         "Las gráficas «vs k» usan el rango «k máximo»; las «vs M» usan «M máximo» "
                                         "con el k actual (solo población finita)."))
 
-        div = QSplitter(Qt.Horizontal)
+        self.div = div = QSplitter(Qt.Horizontal)
         div.setChildrenCollapsible(False)
-        izq = QWidget()
+        self.izq = izq = QWidget()
         li = QVBoxLayout(izq)
         li.setContentsMargins(0, 0, 0, 0)
         li.setSpacing(6)
         self.arbol = QTreeWidget()
         self.arbol.setObjectName("IndiceGraficas")
         self.arbol.setHeaderHidden(True)
-        self.arbol.setMinimumWidth(180)
+        self.arbol.setTextElideMode(Qt.ElideNone)
+        self.arbol.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.items = {}
         for cat in gc.CATEGORIAS:
             nodo = QTreeWidgetItem([cat])
@@ -89,8 +134,8 @@ class PaginaGraficas(QWidget):
         ld = QVBoxLayout(der)
         ld.setContentsMargins(10, 8, 10, 10)
         self.fig = Figure(figsize=(6, 4), dpi=100, layout="constrained")
-        self.canvas = FigureCanvasQTAgg(self.fig)
-        self.canvas.setMinimumSize(220, 260)
+        self.canvas = _Lienzo(self.fig)
+        self.canvas.setMinimumSize(300, 260)     # legible aun a 1100 px con el panel de parámetros
         self.barra_mpl = NavigationToolbar2QT(self.canvas, der)
         self.barra_mpl.setMinimumWidth(1)       # si no cabe, la barra muestra el botón »
         self.chk_valores = QCheckBox("Valores en los puntos")
@@ -105,14 +150,42 @@ class PaginaGraficas(QWidget):
         self.lbl_no_aplica.hide()
         ld.addWidget(self.lbl_no_aplica)
         div.addWidget(der)
-        div.setStretchFactor(1, 1)
-        div.setSizes([240, 760])
+        div.setStretchFactor(0, 0)
+        div.setStretchFactor(1, 1)           # al achicar la página, se achica primero la gráfica
         lay.addWidget(div, 1)
+        self._ancho_indice = None
+        self.ajustar_indice()
 
         self.arbol.setCurrentItem(self.items[self.orden[0]])
         self._habilitar(False)
 
     # ------------------------------------------------------------------
+    def ancho_indice(self):
+        """Ancho del panel izquierdo: el texto más largo del índice (con sangría, marco y barra) o el botón
+        más ancho, lo que sea mayor."""
+        a = self.arbol
+        a.ensurePolished()
+        m = a.contentsMargins()
+        texto = (a.sizeHintForColumn(0) + a.indentation() + 2 * a.frameWidth() + m.left() + m.right()
+                 + a.verticalScrollBar().sizeHint().width())
+        botones = self.izq.layout().minimumSize().width()
+        return texto, max(texto, botones)
+
+    def ajustar_indice(self):
+        """Fija el mínimo del índice y del panel izquierdo; recalcula si cambian la fuente o el tema."""
+        texto, panel = self.ancho_indice()
+        self.arbol.setMinimumWidth(texto)
+        self.izq.setMinimumWidth(panel)
+        if panel != self._ancho_indice:
+            self._ancho_indice = panel
+            total = sum(self.div.sizes()) or (panel + 760)
+            self.div.setSizes([panel, max(1, total - panel)])
+
+    def changeEvent(self, e):
+        super().changeEvent(e)
+        if e.type() in (QEvent.FontChange, QEvent.StyleChange):
+            self.ajustar_indice()
+
     def _gid(self):
         it = self.arbol.currentItem()
         gid = it.data(0, ROL_GID) if it else None
@@ -151,6 +224,9 @@ class PaginaGraficas(QWidget):
             self.ctx["mostrar_valores"] = self.chk_valores.isChecked()
             self.ctx["colores"] = tema.colores_grafica()
             gc.dibujar(self.fig, self._gid(), self.ctx)
+        # Títulos que saltan de línea si la gráfica es angosta (p. ej. a 1100 px con el panel de parámetros)
+        for texto in self.fig.texts + [ax.title for ax in self.fig.axes]:
+            texto.set_wrap(True)
         self.canvas.draw_idle()
 
     def limpiar(self, mensaje):
@@ -160,8 +236,9 @@ class PaginaGraficas(QWidget):
         self.dibujar()
 
     def repintar(self):
-        """Cambio de tema: el índice se colorea ya; la figura, ahora si se ve o al abrir la pestaña."""
+        """Cambio de tema: el índice se colorea (y se vuelve a medir) ya; la figura, ahora si se ve o al abrir."""
         self._colorear_indice()
+        self.ajustar_indice()
         self.dibujar()
 
     @property
@@ -170,6 +247,7 @@ class PaginaGraficas(QWidget):
 
     def showEvent(self, e):
         super().showEvent(e)
+        self.ajustar_indice()             # ya con la hoja de estilos aplicada
         if self._pendiente:
             self.dibujar()
 

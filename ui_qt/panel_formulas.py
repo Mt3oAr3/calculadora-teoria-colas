@@ -1,9 +1,12 @@
 """
 panel_formulas.py
-Panel «Cómo se calculó»: drawer flotante anclado al borde derecho del área de
-resultados. Se superpone al contenido (no cambia su ancho), tiene sombra (dibujada por
-un widget hermano, ver sombra_lateral.py) y borde izquierdo de 1 px, se abre
-y se cierra deslizándose, y se cierra con su botón, con Esc o con un clic fuera.
+Panel «Cómo se calculó»: panel acoplado a la derecha del área de resultados (no la tapa:
+al abrirse el área se achica para dejarle lugar y al cerrarse vuelve a crecer). Borde
+izquierdo de 1 px. Se cierra con su botón, con Esc o con un clic fuera.
+
+El ancho del panel lo anima la ventana (ui_qt/animacion.AnimadorPaneles) entre 0 y
+`ancho_abierto`; el contenido mide siempre `ancho_abierto` y el panel solo lo recorta, así
+durante la animación no se vuelve a acomodar ni a renderizar nada.
 
 Muestra título, explicación, la fórmula dibujada con matplotlib, la misma fórmula
 con los valores actuales y el resultado. No guarda fórmulas: cada vez la pide a
@@ -11,15 +14,14 @@ services.formulas con el escenario vigente o, para una fila de «Comparar k y M�
 el escenario de esa fila (`contexto`, p. ej. "k = 3", va en el título). Al cambiar el
 tema se regenera con el mismo escenario con que se abrió.
 """
-from PySide6.QtCore import QEasingCurve, QEvent, QPoint, QPropertyAnimation, QRect, Qt, Signal
+from PySide6.QtCore import QEvent, Qt, Signal
 from PySide6.QtWidgets import (QApplication, QFrame, QHBoxLayout, QLabel, QPushButton, QScrollArea, QSizePolicy,
                                QVBoxLayout, QWidget)
 
 from services import formulas as fm
 
-from . import tema
+from . import animacion, tema
 from .render_formula import formula_a_pixmap
-from .sombra_lateral import SombraLateral
 
 L = tema.LAYOUT
 
@@ -73,7 +75,8 @@ class ImagenFormula(QScrollArea):
 
 
 class PanelFormulas(QFrame):
-    cerrado = Signal()
+    abriendo = Signal()         # se abrió: la ventana decide su ancho y lo despliega
+    cerrado = Signal()          # se cerró: la ventana lo repliega
 
     def __init__(self, padre=None):
         super().__init__(padre)
@@ -85,14 +88,13 @@ class PanelFormulas(QFrame):
         self.abierto = False
         self._esc = self._fmt = None
         self._imagenes = []
-        self._area = None
-        self.sombra = None
-        self._anim = QPropertyAnimation(self, b"pos", self)
-        self._anim.setDuration(L["drawer_ms"])
-        self._anim.setEasingCurve(QEasingCurve.OutCubic)
-        self._anim.finished.connect(self._fin_animacion)
+        self._imagenes_pendientes = False
+        self.ancho_abierto = L["drawer_min"]
 
-        lay = QVBoxLayout(self)
+        # Contenido de ancho fijo (ancho_abierto); el panel lo recorta mientras se despliega
+        self.contenido = QWidget(self)
+        self.contenido.setObjectName("ContenidoFormulas")
+        lay = QVBoxLayout(self.contenido)
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(0)
         cab = QHBoxLayout()
@@ -113,49 +115,46 @@ class PanelFormulas(QFrame):
         self.scroll.setFrameShape(QFrame.NoFrame)
         self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         lay.addWidget(self.scroll, 1)
+        self.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding)
+        self.setFixedWidth(0)
         self.hide()
+        animacion.indicador.cambio.connect(self._animacion_cambio)
+        app = QApplication.instance()
+        if app is not None:
+            app.aboutToQuit.connect(self._soltar_filtro)
 
     # ------------------------------------------------------------------
-    # Anclaje, apertura y cierre
+    # Ancho, apertura y cierre
     # ------------------------------------------------------------------
-    def anclar(self, area):
-        """Superpone el panel al borde derecho de `area` (sin entrar en su layout)."""
-        self._area = area
-        self.setParent(area)
-        self.sombra = SombraLateral(area)
-        area.redimensionada.connect(self._reacomodar)
-        QApplication.instance().aboutToQuit.connect(self._soltar_filtro)
-        self.hide()
-
-    def _reacomodar(self):
-        if self.isVisible():
-            self._anim.stop()
-            self.setGeometry(self._geometria(self.abierto))
+    def poner_ancho_abierto(self, ancho):
+        """Ancho del panel desplegado (lo calcula la ventana); solo aquí se reacomoda el contenido."""
+        if ancho != self.ancho_abierto:
+            self.ancho_abierto = ancho
+            self._colocar_contenido()
             self._ajustar_imagenes()
+
+    def resizeEvent(self, e):
+        super().resizeEvent(e)
+        self._colocar_contenido()
+
+    def _colocar_contenido(self):
+        # 1 px a la izquierda para el borde del panel (#PanelFormulas, ver tema.py)
+        self.contenido.setGeometry(1, 0, max(1, self.ancho_abierto - 1), self.height())
 
     def _soltar_filtro(self):
         QApplication.instance().removeEventFilter(self)
-
-    def _geometria(self, abierto):
-        a = self._area.rect()
-        ancho = int(min(L["drawer_max"], max(L["drawer_min"], a.width() * L["drawer_fraccion"])))
-        ancho = min(ancho, a.width())
-        x = a.width() - ancho if abierto else a.width()
-        return QRect(x, 0, ancho, a.height())
 
     def abrir(self, esc, clave, fmt, contexto=None, nombre=None):
         if self.abierto:
             self.mostrar(esc, clave, fmt, contexto, nombre)
             return
         self.abierto = True
-        # Primero se dibujan las ecuaciones (matplotlib) y recién después se desliza el panel:
+        # Primero se dibujan las ecuaciones (matplotlib) y recién después se despliega el panel:
         # así la animación no pierde cuadros mientras se renderiza el contenido.
-        self.setGeometry(self._geometria(False))
         self.mostrar(esc, clave, fmt, contexto, nombre)
         self.show()
-        self.raise_()
-        self._animar(self._geometria(True).topLeft())
         QApplication.instance().installEventFilter(self)
+        self.abriendo.emit()
 
     def cerrar(self):
         if not self.abierto:
@@ -163,18 +162,7 @@ class PanelFormulas(QFrame):
         self.abierto = False
         self.clave = self.contexto = None
         self._soltar_filtro()
-        self._animar(self._geometria(False).topLeft())
         self.cerrado.emit()
-
-    def _animar(self, destino):
-        self._anim.stop()
-        self._anim.setStartValue(self.pos())
-        self._anim.setEndValue(QPoint(destino))
-        self._anim.start()
-
-    def _fin_animacion(self):
-        if not self.abierto:
-            self.hide()
 
     def eventFilter(self, obj, evento):
         """Filtro de la aplicación, activo solo con el panel abierto: un clic fuera lo cierra."""
@@ -182,28 +170,6 @@ class PanelFormulas(QFrame):
             if not self._dentro(evento.globalPosition().toPoint()) and not self._abre_formula(obj):
                 self.cerrar()
         return False
-
-    # La sombra hermana acompaña al panel en cada cuadro de la animación
-    def moveEvent(self, e):
-        super().moveEvent(e)
-        self._mover_sombra()
-
-    def resizeEvent(self, e):
-        super().resizeEvent(e)
-        self._mover_sombra()
-
-    def showEvent(self, e):
-        super().showEvent(e)
-        self._mover_sombra()
-
-    def hideEvent(self, e):
-        super().hideEvent(e)
-        if self.sombra is not None:
-            self.sombra.hide()
-
-    def _mover_sombra(self):
-        if self.sombra is not None:
-            self.sombra.seguir(self)
 
     def _dentro(self, punto_global):
         return self.rect().contains(self.mapFromGlobal(punto_global))
@@ -257,8 +223,6 @@ class PanelFormulas(QFrame):
             self.mostrar(esc, self.clave, fmt, self.contexto, self._nombre)
 
     def repintar(self):
-        if self.sombra is not None:
-            self.sombra.update()
         if self._esc is not None:
             self.actualizar(self._esc, self._fmt)
 
@@ -266,7 +230,6 @@ class PanelFormulas(QFrame):
         if principal:
             lc.addWidget(_texto(f"{f.titulo} para {self.contexto}" if self.contexto else f.titulo,
                                 nombre="FormulaTitulo"))
-
             lc.addWidget(_texto(f.explicacion, "subtitulo"))
         else:
             sep = QFrame()
@@ -302,8 +265,17 @@ class PanelFormulas(QFrame):
         return caja
 
     def _ajustar_imagenes(self):
+        """Ecuaciones al ancho del contenido; mientras se anima un panel, se hace al terminar."""
+        if animacion.animando():
+            self._imagenes_pendientes = True
+            return
+        self._imagenes_pendientes = False
         m = L["caja_formula_margen"]
         barra = self.scroll.verticalScrollBar().sizeHint().width()
-        ancho = self.width() - 2 * L["drawer_margen"] - m[0] - m[2] - barra - 2
+        ancho = self.ancho_abierto - 2 * L["drawer_margen"] - m[0] - m[2] - barra - 2
         for img in self._imagenes:
             img.ajustar(ancho)
+
+    def _animacion_cambio(self, activa):
+        if not activa and self._imagenes_pendientes:
+            self._ajustar_imagenes()

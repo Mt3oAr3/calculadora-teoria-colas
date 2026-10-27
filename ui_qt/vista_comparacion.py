@@ -15,6 +15,7 @@ from domain.errores import ErrorEntrada
 from services import comparacion_service as cmp
 
 from . import tema
+from .chips import FilaChips
 from .combo import crear_combo
 from .info_box import InfoBox
 from .vista_tabla import VistaTabla, encabezado_pagina
@@ -64,7 +65,6 @@ class PaginaComparacion(QWidget):
         # Cambiar la métrica con el panel abierto actualiza la fórmula de la fila (no cierra el panel)
         self.cb_metrica.setProperty("abre_formula", True)
         self.cb_op = crear_combo(cmp.OPERADORES, "≤")
-
         self.ent_lim = QLineEdit("0,5")
         self.ent_lim.setFixedWidth(70)
         self.ent_lim.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
@@ -95,13 +95,25 @@ class PaginaComparacion(QWidget):
         lay.addWidget(InfoBox("Negrita: valor actual. Los tiempos usan la unidad de «Mostrar tiempos en». "
                               "Verde: el k de menor costo total."))
 
-        self.tabla_k = VistaTabla("En función de k", ordenable=True, filas_min=3)
-        self.tabla_M = VistaTabla("En función de M", ordenable=True, filas_min=3)
+        # Barridos largos (k máximo hasta 200, M hasta 300): la tabla no pasa de tabla_filas_max filas y
+        # tiene su propia barra vertical; el encabezado queda siempre a la vista.
+        filas_max = tema.LAYOUT["tabla_filas_max"]
+        self.tabla_k = VistaTabla("En función de k", ordenable=True, filas_min=3, filas_max=filas_max)
+        self.tabla_M = VistaTabla("En función de M", ordenable=True, filas_min=3, filas_max=filas_max)
+        self.chips_k, self.chips_M = FilaChips(), FilaChips()
+        self.tabla_k.agregar_bajo_titulo(self.chips_k)
+        self.tabla_M.agregar_bajo_titulo(self.chips_M)
+        # Población infinita: en lugar de un bloque vacío para M, una sola línea informativa
+        self.info_M = InfoBox("La tabla en función de M solo aplica a población finita.")
+        self.info_M.hide()
         lay.addWidget(self.tabla_k)
         lay.addWidget(self.tabla_M)
+        lay.addWidget(self.info_M)
         lay.addStretch(1)
         for tabla in (self.tabla_k, self.tabla_M):
             tabla.fila_clicada.connect(self._fila_clicada)
+        for chips in (self.chips_k, self.chips_M):
+            chips.elegido.connect(lambda tipo, valor: self._fila_clicada(cmp.clave_fila(tipo, valor)))
 
     def mostrar(self, esc, fmt):
         self.esc, self.fmt = esc, fmt
@@ -122,8 +134,8 @@ class PaginaComparacion(QWidget):
             self.lbl_err.setText(e.errores[0][1])
             self.lbl_err.show()
             self.res_k = self.res_M = None
-            self.tabla_k.poner_titulo("En función de k")
-            self.tabla_M.poner_titulo("En función de M")
+            self.chips_k.poner([])
+            self.chips_M.poner([])
             self.tabla_k.limpiar("Corrige la condición para ver la comparación.")
             self.tabla_M.limpiar("")
             self._perder_fila()
@@ -133,12 +145,30 @@ class PaginaComparacion(QWidget):
         self.lbl_unidad.setText(self.fmt.abrev_tiempo if cond.metrica.es_tiempo else "")
         self.res_k = cmp.comparar_k(self.esc, cond, self.fmt)
         self.res_M = cmp.comparar_M(self.esc, cond, self.fmt)
-        self.tabla_k.poner_titulo("En función de k:  " + self.res_k.resumen)
+        self.chips_k.poner(self.res_k.destacados, self._estilos(self.res_k))
         self.tabla_k.mostrar(self.res_k.tabla, self.fmt)
-        self.tabla_M.poner_titulo("En función de M:  " + self.res_M.resumen)
+        finita = self.esc.p.finita
+        self.tabla_M.setVisible(finita)
+        self.info_M.setVisible(not finita)
+        self.chips_M.poner(self.res_M.destacados if finita else [], {0: "cumple"})
         self.tabla_M.mostrar(self.res_M.tabla, self.fmt)
         if self.fila is not None:
             self._pedir_formula()
+        else:                       # sin fila elegida, cada tabla muestra su primera fila que cumple
+            for tabla, res, tipo in ((self.tabla_k, self.res_k, "k"), (self.tabla_M, self.res_M, "M")):
+                if res.valor_que_cumple is not None:
+                    tabla.desplazar_a_clave(cmp.clave_fila(tipo, res.valor_que_cumple))
+
+    @staticmethod
+    def _estilos(res):
+        """Aspecto de cada chip: el que cumple como las filas que cumplen, el de menor costo en verde."""
+        estilos = {}
+        for i, d in enumerate(res.destacados):
+            if d.texto.startswith("Menor costo"):
+                estilos[i] = "mejor"
+            elif d.texto.startswith(("Menor k", "Ningún")):
+                estilos[i] = "cumple"
+        return estilos
 
     # ------------------------------------------------------------------
     # «Cómo se calculó» de una fila
@@ -185,7 +215,8 @@ class PaginaComparacion(QWidget):
         self.esc = None
         self.fila = None
         self.res_k = self.res_M = None
-
+        self.chips_k.poner([])
+        self.chips_M.poner([])
         self.tabla_k.limpiar(mensaje)
         self.tabla_M.limpiar("")
 

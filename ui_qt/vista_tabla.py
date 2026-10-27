@@ -16,7 +16,7 @@ from PySide6.QtGui import QFontMetrics
 from PySide6.QtWidgets import (QAbstractItemView, QFrame, QHeaderView, QLabel, QSizePolicy, QStackedLayout,
                                QTableView, QVBoxLayout, QWidget)
 
-from . import tema
+from . import animacion, tema
 from .info_box import InfoBox
 from .modelo_tabla import ROL_CLAVE, ModeloTabla, ProxyOrdenable
 
@@ -49,9 +49,12 @@ class _Tabla(QTableView):
 class VistaTabla(QFrame):
     fila_clicada = Signal(str)
 
-    def __init__(self, titulo="", ordenable=False, filas_min=4, padre=None):
+    def __init__(self, titulo="", ordenable=False, filas_min=4, filas_max=None, padre=None):
         super().__init__(padre)
         self.estado_vacio = None          # widget opcional que reemplaza a la tabla (ver usar_estado_vacio)
+        self.extra = None                 # widget opcional bajo el título (p. ej. chips)
+        # Con más de filas_max filas la tabla no crece más: tiene su propia barra vertical
+        self.filas_max = filas_max
         self.setObjectName("Bloque")
         self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
         lay = QVBoxLayout(self)
@@ -110,10 +113,17 @@ class VistaTabla(QFrame):
         self._naturales = []
         self._ancho_previo = None
         self._ajustando = False
+        self._diferido = False            # hubo cambios de ancho durante una animación de paneles
+        animacion.indicador.cambio.connect(self._animacion_cambio)
 
     def poner_titulo(self, texto):
         if self.titulo is not None:
             self.titulo.setText(texto)
+
+    def agregar_bajo_titulo(self, widget):
+        """Widget entre el título y la tabla (cuenta en el alto del bloque)."""
+        self.extra = widget
+        self.layout().insertWidget(0 if self.titulo is None else 1, widget)
 
     def mostrar(self, tabla, fmt):
         self.modelo.mostrar(tabla, fmt)
@@ -178,7 +188,10 @@ class VistaTabla(QFrame):
         sobra = disponible - sum(nat)
         if sobra >= 0:
             if texto:
-                nat[texto[-1]] += sobra             # la última columna de texto absorbe lo sobrante
+                # La última columna de texto absorbe el sobrante, pero si tiene cifras a su derecha crece a lo
+                # sumo una holgura: los números quedan cerca de su etiqueta y el resto es espacio libre.
+                c = texto[-1]
+                nat[c] += sobra if c == len(nat) - 1 else min(sobra, L["tabla_holgura_texto"])
             return nat
         # Falta espacio: solo se achican las columnas de texto (hasta un mínimo legible) y saltan de línea
         cab = self.vista.horizontalHeader()
@@ -191,7 +204,44 @@ class VistaTabla(QFrame):
                 nat[c] -= int(recorte * (nat[c] - minimos[c]) / holgura + 0.999)
         return nat
 
+    @property
+    def pendiente(self):
+        """True si quedó un reajuste completo para cuando termine la animación de los paneles."""
+        return self._diferido
+
+    def _animacion_cambio(self, activa):
+        if not activa and self._diferido:
+            self._diferido = False
+            self._ancho_previo = None
+            self._ajustar()
+
+    def _ajuste_rapido(self):
+        """
+        Durante la animación de los paneles: solo la columna de texto absorbente toma el cambio de
+        ancho (sin medir columnas ni filas). El reajuste completo se hace una vez, al terminar.
+        """
+        self._diferido = True
+        if self.modelo.tabla is None or not self._naturales:
+            return
+        texto = [c for c, col in enumerate(self.modelo.tabla.columnas) if not col.numerica]
+        if not texto:
+            return                         # sin columna de texto: sobra espacio libre o aparece la barra
+        c = texto[-1]
+        cab = self.vista.horizontalHeader()
+        nuevo = cab.sectionSize(c) + self.vista.viewport().width() - cab.length()
+        tope = None if c == len(self._naturales) - 1 else self._naturales[c] + L["tabla_holgura_texto"]
+        nuevo = max(min(self._naturales[c], L["tabla_ancho_min_texto"]), nuevo if tope is None else min(nuevo, tope))
+        if nuevo != cab.sectionSize(c):
+            self._ajustando = True
+            try:
+                cab.resizeSection(c, nuevo)
+            finally:
+                self._ajustando = False
+
     def _ajustar(self):
+        if animacion.animando():
+            self._ajuste_rapido()
+            return
         if self.estado_vacio is not None and self.pila.currentWidget() is self.estado_vacio:
             m = self.layout().contentsMargins()
             self._fijar_alto_bloque(self.estado_vacio.alto_para(max(1, self.width() - m.left() - m.right())))
@@ -242,12 +292,14 @@ class VistaTabla(QFrame):
             return
         vh = self.vista.verticalHeader()
         angostas = self._columnas_angostas()
-        filas = 0
+        altos = []
         for r in range(self.vista.model().rowCount()):
             h = self._alto_fila(r, angostas)
-
             vh.resizeSection(r, h)
-            filas += h
+            altos.append(h)
+        limitada = self.filas_max is not None and len(altos) > self.filas_max
+        self.vista.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded if limitada else Qt.ScrollBarAlwaysOff)
+        filas = sum(altos[:self.filas_max] if limitada else altos)
         cab = self.vista.horizontalHeader()
         rebalsa = cab.length() > self.vista.viewport().width() + 1
         barra = self.vista.horizontalScrollBar().sizeHint().height() if rebalsa else 0
@@ -258,9 +310,11 @@ class VistaTabla(QFrame):
         """Alto mínimo explícito del bloque (título + tabla o mensaje): los layouts siempre lo respetan."""
         m = self.layout().contentsMargins()
         alto = m.top() + m.bottom() + alto_contenido
+        ancho = max(1, self.width() - m.left() - m.right())
         if self.titulo is not None:
-            ancho = max(1, self.width() - m.left() - m.right())
             alto += max(self.titulo.sizeHint().height(), self.titulo.heightForWidth(ancho))
+        if self.extra is not None and not self.extra.isHidden():
+            alto += self.extra.heightForWidth(ancho)
         self.layout().invalidate()
         self.setMinimumHeight(max(alto, self.minimumSizeHint().height()))
 
@@ -278,14 +332,28 @@ class VistaTabla(QFrame):
         if clave:
             self.fila_clicada.emit(clave)
 
-    def seleccionar_clave(self, clave):
-        """Resalta la fila con esa clave (también tras reordenar o volver a mostrar). False si no está."""
+    def _indice_de(self, clave):
         m = self.vista.model()
         for r in range(m.rowCount()):
             if m.index(r, 0).data(ROL_CLAVE) == clave:
-                self.vista.selectRow(r)
-                return True
-        return False
+                return m.index(r, 0)
+        return None
+
+    def seleccionar_clave(self, clave):
+        """Resalta la fila con esa clave (también tras reordenar o volver a mostrar) y la deja a la vista."""
+        ix = self._indice_de(clave)
+        if ix is None:
+            return False
+        self.vista.selectRow(ix.row())
+        self.vista.scrollTo(ix, QAbstractItemView.EnsureVisible)
+        return True
+
+    def desplazar_a_clave(self, clave):
+        """Deja a la vista la fila con esa clave (tablas con barra propia); False si no está."""
+        ix = self._indice_de(clave)
+        if ix is not None:
+            self.vista.scrollTo(ix, QAbstractItemView.PositionAtTop)
+        return ix is not None
 
     def quitar_seleccion(self):
         self.vista.clearSelection()

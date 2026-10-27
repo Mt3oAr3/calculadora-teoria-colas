@@ -39,7 +39,6 @@ class AreaResultados(QWidget):
     fila_perdida = Signal()           # esa fila ya no está en la comparación
     aviso = Signal(str)               # mensajes para la barra de estado
     ir_a_costos = Signal()            # botón del estado vacío de costos
-    redimensionada = Signal()         # el panel superpuesto se reacomoda
 
     def __init__(self, unidad_tiempo, padre=None):
         super().__init__(padre)
@@ -58,7 +57,6 @@ class AreaResultados(QWidget):
         self.comparacion = PaginaComparacion(unidad_tiempo=unidad_tiempo)
         self.comparacion.formula_pedida.connect(self.formula_fila.emit)
         self.comparacion.fila_perdida.connect(self.fila_perdida.emit)
-
         self.graficas = PaginaGraficas()
         self.graficas.aviso.connect(self.aviso.emit)
         self.paginas = [self.resultados, self.probabilidades, self.costos, self.comparacion, self.graficas]
@@ -74,10 +72,6 @@ class AreaResultados(QWidget):
         for i, nombre in enumerate(PESTANAS):
             self.pestanas.setTabToolTip(i, f"{nombre}  (Ctrl+{i + 1})")
         lay.addWidget(self.pestanas, 1)
-
-    def resizeEvent(self, e):
-        super().resizeEvent(e)
-        self.redimensionada.emit()
 
     def ir_a(self, indice):
         self.pestanas.setCurrentIndex(indice)

@@ -51,7 +51,6 @@ def tecla(widget, nombre, ctrl=False):
     QTest.keyClick(widget, getattr(Qt, f"Key_{nombre}"), Qt.ControlModifier if ctrl else Qt.NoModifier)
 
 
-
 def clic(widget, punto=None):
     """Clic izquierdo en el widget (en su centro o en `punto`, coordenadas locales)."""
     from PySide6.QtCore import QPoint, Qt
@@ -66,6 +65,12 @@ def clic_fila(vista, fila, columna=0):
 
 def filas_seleccionadas(vista):
     return sorted(ix.row() for ix in vista.selectionModel().selectedRows())
+
+
+def sin_elidir():
+    """Qt.ElideNone (las pruebas no importan Qt)."""
+    from PySide6.QtCore import Qt
+    return Qt.ElideNone
 
 
 def visible_en_ventana(widget):

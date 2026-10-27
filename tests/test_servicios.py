@@ -140,6 +140,23 @@ class TestEscenario(unittest.TestCase):
             for fila in t.filas:
                 self.assertEqual(len(fila.celdas), len(t.columnas), t.titulo)
 
+    def test_porcentajes_de_probabilidades(self):
+        """«Valor (%)» y «Pn (%)» llevan el mismo dato crudo que su columna (el orden usa ese dato) en tipo pct."""
+        esc = cs.calcular_escenario(cs.leer_parametros(entradas()))
+        fmt = Formateador(4)
+        t = cs.tabla_probabilidades(esc, 2, 3)
+        self.assertEqual(t.encabezados, ["Probabilidad", "Valor", "Valor (%)", "Significado"])
+        self.assertEqual([c.numerica for c in t.columnas], [False, True, True, False])
+        for f in t.filas:
+            self.assertEqual(f.celdas[2].tipo, "pct")
+            self.assertEqual(f.celdas[2].dato, f.celdas[1].dato)
+            self.assertTrue(f.clave.startswith("prob:"))
+        self.assertEqual(fmt.texto(t.filas[0].celdas[2]), fmt.num(t.filas[0].celdas[1].dato * 100, 2) + " %")
+        d = cs.tabla_distribucion(esc)
+        self.assertEqual(d.encabezados, ["n", "En cola", "Pn", "Pn (%)", "P(≤ n)", "P(≥ n)"])
+        for f in d.filas:
+            self.assertEqual((f.celdas[3].tipo, f.celdas[3].dato), ("pct", f.celdas[2].dato))
+
     def test_tabla_costos_valores(self):
         esc = cs.calcular_escenario(cs.leer_parametros(entradas(cS="100", D="5")))
         t = cs.tabla_costos(esc)

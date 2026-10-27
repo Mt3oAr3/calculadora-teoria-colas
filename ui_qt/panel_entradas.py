@@ -36,7 +36,6 @@ def _combo(opciones):
     return crear_combo(opciones, minimo_contenido=6)
 
 
-
 class PanelEntradas(QWidget):
     calcular = Signal()
     exportar = Signal()

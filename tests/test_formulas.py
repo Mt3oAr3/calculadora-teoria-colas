@@ -40,8 +40,8 @@ ESCENARIOS = {
 }
 
 # columna con el valor de cada tabla
-TABLAS = [(cs.tabla_resultados, 2), (lambda e: cs.tabla_probabilidades(e, 2, 3), 2),
-          (lambda e: cs.tabla_probabilidades(e, 0, 1), 2), (cs.tabla_distribucion, 2),
+TABLAS = [(cs.tabla_resultados, 2), (lambda e: cs.tabla_probabilidades(e, 2, 3), 1),
+          (lambda e: cs.tabla_probabilidades(e, 0, 1), 1), (cs.tabla_distribucion, 2),
           (cs.tabla_por_dia, 1), (cs.tabla_costos, 1)]
 
 

@@ -32,6 +32,7 @@ class Valor:
 class Columna:
     titulo: str
     numerica: bool = True
+    destacada: bool = False     # se muestra en negrita (p. ej. k y CT en «Comparar k y M»)
 
 
 @dataclass

@@ -44,9 +44,14 @@ Supuestos relevantes:
 - **Interfaz moderna (PySide6):** tema claro y oscuro, pestañas de resultados, secciones
   plegables, tarjetas de indicadores (en la pestaña Resultados), tablas ordenables sin
   textos cortados, un único aviso ámbar cuando los datos cambiaron sin recalcular y el panel
-  superpuesto **«Cómo se calculó»**: al hacer clic en una tarjeta o en una fila se muestra la
-  fórmula del modelo (dibujada con mathtext de matplotlib), la misma fórmula con los datos
-  actuales y el resultado.
+  **«Cómo se calculó»**, acoplado a la derecha: al hacer clic en una tarjeta o en una fila se
+  muestra la fórmula del modelo (dibujada con mathtext de matplotlib), la misma fórmula con los
+  datos actuales y el resultado. No tapa los resultados: el área se achica para dejarle lugar.
+- **Paneles laterales animados:** el panel de parámetros y «Cómo se calculó» cambian de verdad el
+  ancho del área de resultados en cada cuadro (un único controlador, `ui_qt/animacion.py`). Lo
+  caro de un cambio de tamaño (medir tablas, redibujar la gráfica, renderizar ecuaciones) se
+  difiere y se hace una sola vez al terminar, así el movimiento va a ~60 cuadros por segundo
+  también en las pestañas pesadas.
 - **Paleta de marca:** rojo #ea0f02 (acción principal, selección, acentos) y verde #00841d
   (botones secundarios, menor costo, éxito) sobre blanco y negro, en tema claro y oscuro.
   Los estados de error, éxito e inestabilidad llevan icono además de color, y el contraste
@@ -68,9 +73,11 @@ Supuestos relevantes:
 
 Atajos de la interfaz moderna: Enter o F5 calcula, Ctrl+1…5 cambia de pestaña, Ctrl+T
 alterna el tema, Ctrl+B (o el botón ☰ de la barra superior) oculta o muestra el panel de
-parámetros y Esc (o un clic fuera) cierra el panel «Cómo se calculó». El panel de parámetros
-reaparece solo si hay datos marcados en rojo, y su estado (visible y ancho) se recuerda entre
-sesiones.
+parámetros (pulsarlo otra vez a mitad de camino invierte el movimiento) y Esc (o un clic
+fuera) cierra el panel «Cómo se calculó». El panel de parámetros reaparece solo si hay datos
+marcados en rojo y se oculta solo si, al abrir «Cómo se calculó», el área quedaría más angosta
+de lo que necesita la pestaña (vuelve al cerrarla, salvo que lo hayas cambiado a mano). Su
+estado (visible y ancho) se recuerda entre sesiones.
 
 ## Ejecutar las pruebas
 
@@ -110,24 +117,21 @@ calculadora_colas/
 │   ├── app.py                   QApplication y arranque
 │   ├── ventana_principal.py     Ventana, flujo de cálculo, exportación y tema
 │   ├── barra_superior.py        Botón de parámetros (Ctrl+B), nombre de la app y botón de tema
-│   ├── transicion_panel.py      Animación del panel de parámetros con capturas (sin reacomodar por cuadro)
-
-
+│   ├── animacion.py             AnimadorPaneles (un controlador para los dos paneles) e indicador «animando»
 │   ├── banner_desactualizado.py Único aviso de datos desactualizados (ámbar, con «Calcular»)
 │   ├── area_resultados.py       Encabezado del modelo y pestañas (un scroll por pestaña)
 │   ├── encabezado_modelo.py     Kendall, estado y mensaje de estabilidad
 │   ├── panel_entradas.py        Formulario en secciones plegables, errores por campo
 │   ├── seccion_plegable.py      Sección plegable del formulario
 │   ├── combo.py                 crear_combo(): todas las listas desplegables (lista redondeada, chevron propio)
-
 │   ├── tarjetas.py              Tarjetas de indicadores (una fila, compactas o filas parejas)
-│   ├── modelo_tabla.py          Adaptador Qt de Tabla (colores, orden por valor crudo)
-│   ├── vista_tabla.py           Tabla reutilizable con mensaje de vacío
+│   ├── modelo_tabla.py          Adaptador Qt de Tabla (colores y negritas precalculados, orden por valor crudo)
+│   ├── vista_tabla.py           Tabla reutilizable con mensaje de vacío (alto máximo opcional con barra propia)
 │   ├── vista_resultados.py  vista_probabilidades.py  vista_costos.py
-│   ├── vista_comparacion.py     Comparar k y M
-│   ├── vista_graficas.py        Gráficas incrustadas (FigureCanvasQTAgg)
-│   ├── panel_formulas.py        Panel superpuesto «Cómo se calculó»
-│   ├── sombra_lateral.py        Sombra del panel de fórmulas (widget hermano con degradado)
+│   ├── vista_comparacion.py     Comparar k y M (chips, tablas de k y M)
+│   ├── chips.py                 Fila de chips con datos clave sobre una tabla (saltan de línea)
+│   ├── vista_graficas.py        Gráficas incrustadas (índice a la medida de su texto)
+│   ├── panel_formulas.py        Panel acoplado «Cómo se calculó» (borde izquierdo de 1 px)
 │   ├── info_box.py              Caja informativa con icono «i» verde
 │   ├── estado_vacio.py          Estado vacío con botón (p. ej. «Aún no hay costos ingresados»)
 │   ├── soporte_pruebas.py       Ayudas para probar la ventana sin pantalla (offscreen)
@@ -161,7 +165,17 @@ condición de búsqueda para ese k o M (p. ej. «Wq para k = 3»). Las filas lle
 con el mismo resultado del barrido (sin recalcular) y `clave_formula()` traduce la métrica a la
 clave de `formulas` (la identidad salvo «Probabilidad de esperar» → `Pw`). La fila queda
 resaltada; cambiar la métrica actualiza la fórmula de la misma fila y, si tras recalcular la fila
-ya no está, el panel se cierra.
+ya no está, el panel se cierra. Sobre cada tabla, unos chips resumen lo importante («Menor k que
+cumple», «Menor costo total», «Mínimo por estabilidad», «Mayor M que cumple»); un clic en un chip
+resalta esa fila y abre su fórmula. Con muchas filas (k máximo hasta 200) la tabla muestra a lo
+sumo 14 a la vez, con su propia barra y el encabezado fijo, y se desplaza sola a la primera fila
+que cumple. En población infinita, en lugar de la tabla de M hay una sola línea informativa.
+
+El panel es parte del layout (centro = [área de resultados | «Cómo se calculó»]): su ancho se
+anima entre 0 y una fracción del centro, y su contenido mide siempre el ancho final (el panel
+solo lo recorta mientras se despliega), así las ecuaciones no se vuelven a renderizar en cada
+cuadro. Esc, un clic fuera o «Cerrar» lo repliegan; al cambiar de tema o de presentación se
+regenera con el mismo escenario.
 
 
 ## Flujo de datos
@@ -204,8 +218,9 @@ Igual que la versión anterior: separador `;`, UTF-8 con BOM (se abre bien en Ex
 secciones *Resultados, Probabilidades, Por día, Costos, Variando k, Variando M*, cada
 una con título, encabezados, filas y una línea en blanco. Cambios: la columna
 «% operando» de *Variando k* solo aparece en población finita, la columna de costo de
-espera se titula «CT(TE)+ocio» cuando hay costo de ocio, y las columnas de tiempo
-indican la unidad en el encabezado (p. ej. «Wq (min)»).
+espera se titula «CT(TE)+ocio» cuando hay costo de ocio, las columnas de tiempo
+indican la unidad en el encabezado (p. ej. «Wq (min)») y *Probabilidades* lleva las columnas
+Probabilidad, Valor, Valor (%), Significado (la distribución completa agrega «Pn (%)»).
 
 ## Valores iniciales
 

@@ -41,9 +41,9 @@ PALETAS = {
         "ok": "#00701a", "ok_fondo": "#e6f3e9",
         "aviso": "#7a4600", "aviso_fondo": "#fff4dc",
         "info_fondo": "#f4f4f4", "info_borde": "#dedede", "info_icono": VERDE_MARCA, "info_icono_sobre": "#ffffff",
-        # Panel de fórmulas y sombras
+        # Panel de fórmulas y sombra de las tarjetas
         "formula_fondo": "#f7f7f7", "formula_borde": "#dcdcdc", "resultado_fondo": "#fde9e8",
-        "sombra": "#00000026", "sombra_panel": "#00000038",
+        "sombra": "#00000026",
         # Gráficas (matplotlib): fondo, ejes, rejilla y series
         "grafica_fondo": "#ffffff", "grafica_ejes": "#8c8c8c", "grafica_rejilla": "#e6e6e6",
         "serie_1": ROJO_MARCA, "serie_2": VERDE_MARCA, "serie_3": "#3d3d3d",
@@ -66,7 +66,7 @@ PALETAS = {
         "aviso": "#f0b05a", "aviso_fondo": "#3a2a10",
         "info_fondo": "#1e1e1e", "info_borde": "#333333", "info_icono": "#4cc964", "info_icono_sobre": "#0b1f0f",
         "formula_fondo": "#1c1c1c", "formula_borde": "#353535", "resultado_fondo": "#3a1614",
-        "sombra": "#00000099", "sombra_panel": "#000000a0",
+        "sombra": "#00000099",
         "grafica_fondo": "#1a1a1a", "grafica_ejes": "#7a7a7a", "grafica_rejilla": "#2e2e2e",
         "serie_1": "#ff4a3d", "serie_2": "#4cc964", "serie_3": "#c4c4c4",
     },
@@ -142,8 +142,11 @@ LAYOUT = {
     "area_margen": (16, 12, 16, 0), "barra_superior_margen": (10, 6, 12, 6), "barra_superior_espacio": 6,
     # Panel de parámetros ocultable (Ctrl+B): duración de la animación y ancho máximo recordado
     "panel_ms": 200, "panel_fraccion_max": 0.5,
-    # Panel superpuesto «Cómo se calculó»
-    "drawer_fraccion": 0.40, "drawer_min": 360, "drawer_max": 620, "drawer_ms": 180, "drawer_sombra": 28,
+    # Panel acoplado «Cómo se calculó» (fracción del centro, entre mínimo y máximo)
+    "drawer_fraccion": 0.40, "drawer_min": 360, "drawer_max": 620,
+    # Ancho útil mínimo del área de resultados: si «Cómo se calculó» la dejaría más angosta, el panel
+    # de parámetros se oculta mientras la fórmula está abierta
+    "area_ancho_min": 560,
     "drawer_margen": 18, "drawer_espacio": 14,
     # Cajas informativas y estado vacío
     "info_margen": (12, 10, 14, 10), "info_espacio": 10, "info_icono": 18,
@@ -162,6 +165,12 @@ LAYOUT = {
     # Tablas
     "tabla_alto_fila": 30, "tabla_relleno_celda": 16, "tabla_relleno_vertical": 12,
     "tabla_ancho_min_texto": 140, "tabla_ancho_max": 420,
+    # Lo más que crece una columna de texto con cifras a su derecha (el resto del ancho queda libre)
+    "tabla_holgura_texto": 48,
+    # Tablas largas de «Comparar k y M»: filas visibles antes de usar su propia barra vertical
+    "tabla_filas_max": 14,
+    # Chips (datos clave sobre una tabla)
+    "chips_margen": (12, 0, 12, 8), "chips_espacio": 8,
 }
 
 _actual = "claro"
@@ -357,6 +366,17 @@ QLabel#TarjetaValor { font-size: 15pt; font-weight: 600; color: $texto; }
 #Tarjeta[compacta="true"] QLabel#TarjetaValor { font-size: 12pt; }
 #Tarjeta[vigente="false"] QLabel#TarjetaValor { color: $texto_3; }
 
+/* Chips: datos clave sobre una tabla («Menor k que cumple: 2»); clic = ver esa fila */
+QPushButton#Chip {
+    background: $superficie; color: $texto_2; border: 1px solid $borde_fuerte; border-radius: 12px;
+    padding: 3px 12px; font-size: 9pt;
+}
+QPushButton#Chip[tipo="cumple"] { background: $fila_cumple; color: $texto; }
+QPushButton#Chip[tipo="mejor"] { background: $fila_mejor; color: $secundario_texto; border-color: $secundario_texto; }
+QPushButton#Chip:hover { border-color: $primario_texto; }
+QPushButton#Chip:focus { border: 1px solid $primario_texto; }
+QPushButton#Chip:disabled { background: $superficie; color: $texto_3; border-color: $borde; }
+
 /* Tablas */
 #Bloque { background: $tabla_fondo; border: 1px solid $borde; border-radius: 12px; }
 QTableView {
@@ -364,7 +384,9 @@ QTableView {
     gridline-color: $borde; selection-background-color: $seleccion; selection-color: $texto;
 }
 QTableView::item { padding: 4px 8px; }
+QHeaderView { background: $encabezado_tabla; border: none; }
 QHeaderView::section {
+
     background: $encabezado_tabla; color: $texto_2; border: none; border-bottom: 1px solid $borde;
     padding: 7px 8px; font-weight: 600;
 }
