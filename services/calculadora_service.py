@@ -24,7 +24,13 @@ from .tablas import Columna, Fila, Tabla, Valor
 POBLACIONES = ["Infinita", "Finita"]
 MODO_LAM = ["Tasa (clientes por unidad)", "Tiempo entre llegadas"]
 MODO_MU = ["Tasa (clientes por unidad)", "Tiempo medio de servicio"]
-BASES_ESPERA = {"Lq (solo espera en cola)": "Lq", "L (espera + servicio)": "L"}
+# «Se cobra sobre»: base L = el cliente cuesta mientras está en el sistema (atendido o esperando),
+# «costo de servicio»; base Lq = solo mientras espera en la cola, «costo de espera». Son excluyentes
+# (un solo campo cW) y no tienen que ver con el costo por servidor (cS).
+BASES_ESPERA = {"Tiempo en el sistema, L (costo de servicio)": "L", "Tiempo en cola, Lq (costo de espera)": "Lq"}
+# Textos de versiones anteriores (estados guardados, pruebas viejas) -> texto vigente
+BASES_ESPERA_ANTIGUAS = {"Lq (solo espera en cola)": "Tiempo en cola, Lq (costo de espera)",
+                         "L (espera + servicio)": "Tiempo en el sistema, L (costo de servicio)"}
 DECIMALES = ["2", "3", "4", "6"]
 
 # Valores iniciales: un M/M/1 estable de ejemplo (λ = 10 clientes/h, servicio
@@ -34,7 +40,7 @@ VALORES_INICIALES = {
     "lam_modo": MODO_LAM[0], "lam_u": "hora", "lam": "10",
     "mu_modo": MODO_MU[1], "mu_u": "minuto", "mu": "4",
     "H": "12", "D": "7",
-    "cS": "0", "cS_u": "día", "cW": "0", "cW_u": "hora", "cW_b": "Lq (solo espera en cola)",
+    "cS": "0", "cS_u": "día", "cW": "0", "cW_u": "hora", "cW_b": "Tiempo en cola, Lq (costo de espera)",
     "cI": "0", "ing": "0", "ingF": "1",
     "kmax": "10", "Mmax": "30",
     "ut": "minuto", "dec": "4",
@@ -50,6 +56,7 @@ class ReglaNumerica:
     maximo: float | None = None
     minimo_excluido: bool = False       # True: debe ser estrictamente mayor que el mínimo
     solo_finita: bool = False
+    admite_pct: bool = False            # True: acepta «30 %» además de «0,3»
 
 
 # Límites superiores: kmax ≤ 200 y M ≤ 10000 mantienen tablas legibles y cálculos
@@ -63,10 +70,10 @@ REGLAS = {
     "H": ReglaNumerica("Horas por día", minimo=0, maximo=24, minimo_excluido=True),
     "D": ReglaNumerica("Días por semana", minimo=0, maximo=7, minimo_excluido=True),
     "cS": ReglaNumerica("Costo por servidor", minimo=0),
-    "cW": ReglaNumerica("Costo de espera", minimo=0),
+    "cW": ReglaNumerica("Costo de servicio o de espera", minimo=0),
     "cI": ReglaNumerica("Costo por hora de servidor ocioso", minimo=0),
     "ing": ReglaNumerica("Ingreso por cliente", minimo=0),
-    "ingF": ReglaNumerica("Fracción de clientes con ingreso", minimo=0, maximo=1),
+    "ingF": ReglaNumerica("Fracción de clientes con ingreso", minimo=0, maximo=1, admite_pct=True),
     "kmax": ReglaNumerica("k máximo", entero=True, minimo=1, maximo=200),
     "Mmax": ReglaNumerica("M máximo", entero=True, minimo=2, maximo=300, solo_finita=True),
 }
@@ -92,10 +99,14 @@ def convertir_numero(texto, regla):
     txt = (texto or "").strip().replace(",", ".")
     if not txt:
         raise ValueError("es obligatorio.")
+    escala = 1.0
+    if regla.admite_pct and txt.endswith("%"):
+        txt, escala = txt[:-1].strip(), 0.01            # «30 %» -> 0,30
     try:
-        x = float(txt)
+        x = float(txt) * escala
     except ValueError:
-        raise ValueError(f"«{texto.strip()}» no es un número. Usa por ejemplo 2,5 o 10.") from None
+        ejemplo = "0,3 o 30 %" if regla.admite_pct else "2,5 o 10"
+        raise ValueError(f"«{texto.strip()}» no es un número. Usa por ejemplo {ejemplo}.") from None
     if not math.isfinite(x):
         raise ValueError("debe ser un número finito.")
     if regla.entero:
@@ -140,6 +151,7 @@ def leer_parametros(entradas):
     Devuelve Parametros o lanza ErrorEntrada con TODOS los campos inválidos.
     Los campos que no aplican al modelo (p. ej. M en población infinita) no se validan.
     """
+    entradas = normalizar_entradas(entradas)
     errores = []
     for clave, opciones in OPCIONES.items():
         if entradas.get(clave) not in opciones:
@@ -174,6 +186,72 @@ def leer_parametros(entradas):
         c_ocio=num["cI"], ingreso=num["ing"], frac_ingreso=num["ingF"], sistemas=num["S"])
     return Parametros(finita=finita, k=num["k"], S=num["S"], M=num.get("M"), lam=tasas["lam"], mu=tasas["mu"],
                       H=num["H"], D=num["D"], cfg=cfg, kmax=num["kmax"], Mmax=num.get("Mmax"))
+
+
+def normalizar_entradas(entradas):
+    """Copia de las entradas con los textos antiguos de «Se cobra sobre» traducidos a los vigentes."""
+    d = dict(entradas)
+    if d.get("cW_b") in BASES_ESPERA_ANTIGUAS:
+        d["cW_b"] = BASES_ESPERA_ANTIGUAS[d["cW_b"]]
+    return d
+
+
+# ----------------------------------------------------------------------------
+# Textos que dependen del modelo o de la configuración de costos
+# ----------------------------------------------------------------------------
+@dataclass(frozen=True)
+class EtiquetasCosto:
+    """Textos del costo que se cobra por cliente según su base (L o Lq). Clave interna: c_espera / ct_te."""
+    base: str                   # "L" o "Lq"
+    nombre: str                 # «Costo de servicio» / «Costo de espera» (etiqueta del campo cW)
+    ayuda: str                  # ayuda del campo cW
+    concepto: str               # «CT servicio (L)» / «CT espera (Lq)»
+    encabezado: str             # columna de las tablas de k y M (con «+ ocio» si hay costo de ocio)
+    formula: str                # descripción de la fórmula: «S·L·H·costo por hora»
+    donde: str                  # «en el sistema» / «en la cola»
+
+
+def base_costo(cfg_o_base):
+    """'L' o 'Lq' a partir de un cfg de costos, de la base o del texto de «Se cobra sobre»."""
+    if isinstance(cfg_o_base, dict):
+        return cfg_o_base.get("base_espera", "Lq")
+    texto = BASES_ESPERA_ANTIGUAS.get(cfg_o_base, cfg_o_base)
+    return BASES_ESPERA.get(texto, texto if texto in dc.BASES_ESPERA else "Lq")
+
+
+def etiquetas_costo(cfg_o_base, con_ocio=False):
+    """
+    Única fuente de los textos del costo por cliente (panel, tablas, comparación, fórmulas y gráficas).
+    cfg_o_base: cfg de domain.costos (con_ocio se toma de él si no se indica), 'L' / 'Lq' o el texto
+    de la opción de «Se cobra sobre».
+    """
+    if isinstance(cfg_o_base, dict):
+        con_ocio = con_ocio or (cfg_o_base.get("c_ocio", 0) or 0) > 0
+    base = base_costo(cfg_o_base)
+    if base == "L":
+        nombre, concepto, donde = "Costo de servicio", "CT servicio (L)", "en el sistema"
+        ayuda = "$ por cliente y por unidad de tiempo que está en el sistema (atendido o esperando)."
+    else:
+        nombre, concepto, donde = "Costo de espera", "CT espera (Lq)", "en la cola"
+        ayuda = "$ por cliente y por unidad de tiempo, solo mientras espera en la cola."
+    return EtiquetasCosto(base=base, nombre=nombre, ayuda=ayuda, concepto=concepto,
+                          encabezado=concepto + (" + ocio" if con_ocio else ""),
+                          formula=f"S·{base}·H·costo por hora", donde=donde)
+
+
+def texto_sin_costos(cfg_o_base):
+    """Ayuda del estado vacío de la pestaña de costos (nombra el costo por cliente según su base)."""
+    e = etiquetas_costo(cfg_o_base)
+    return (f"Completa «Costos e ingresos» en el panel de parámetros: costo por servidor (sueldo/arriendo) y "
+            f"{e.nombre.lower()} (se cobra sobre {e.base}, clientes {e.donde}). Luego pulsa Calcular.")
+
+
+def simbolo_espera(finita):
+    """
+    Símbolo de la probabilidad de esperar: Pk en población infinita (como el documento de la cátedra,
+    donde coincide con P(n ≥ k)); Pw en finita, donde la que ve quien llega difiere de P(n ≥ k).
+    """
+    return "Pw" if finita else "Pk"
 
 
 def vista_previa_tasa(es_tasa, valor_txt, unidad, horas_txt):
@@ -248,14 +326,15 @@ def calcular_escenario(p):
 def mensaje_estado(esc, fmt):
     """Texto de estabilidad / factibilidad del modelo."""
     r = esc.r
+    rho = f"{fmt.num(r['rho'])} ({fmt.pct(r['rho'])})"
     if not r["ok"]:
-        return (f"Sistema inestable: ρ = λ/(kμ) = {fmt.num(r['rho'])} ≥ 1, la cola crece sin límite. "
+        return (f"Sistema inestable: ρ = λ/(kμ) = {rho} ≥ 1, la cola crece sin límite. "
                 f"Se necesitan al menos k = {r['k_min']} servidores (ver «Comparar k y M»).")
     if esc.p.finita:
         txt = (f"Población finita: siempre estable. λ/μ por unidad = {fmt.num(r['a'])}. "
-               f"λ efectiva = λ(M − L) = {fmt.num(r['lam_ef'])} por hora.")
+               f"λ efectiva = λ(M − L) = {fmt.texto(Valor(r['lam_ef'], 'tasa'))}.")
     else:
-        txt = f"Sistema estable: ρ = λ/(kμ) = {fmt.num(r['rho'])} < 1. Tráfico λ/μ = {fmt.num(r['a'])}."
+        txt = f"Sistema estable: ρ = λ/(kμ) = {rho} < 1. Tráfico λ/μ = {fmt.num(r['a'])}."
     return " ".join([txt] + esc.avisos)
 
 
@@ -276,57 +355,80 @@ def indicadores_principales(esc):
     r = esc.r
     if not r["ok"]:
         return []
-    util = "Utilización de los servidores" if r["finita"] else "Utilización por servidor"
+    finita = r["finita"]
+    util = "Utilización de los servidores" if finita else "Utilización por servidor"
     lista = [
-        Indicador("ρ", util, Valor(r["util"], "pct"), "Fracción del tiempo que trabaja cada servidor.", "rho"),
+        Indicador("ρ", util, Valor(r["util"], "pct"), "Porcentaje del tiempo que trabaja cada servidor.", "rho"),
         Indicador("P0", "Sistema vacío", Valor(r["P0"]), "Probabilidad de que no haya clientes.", "P0"),
-        Indicador("Pw", "Probabilidad de esperar", Valor(r["frac_espera"]),
-                  "Fracción de clientes que llegan y deben hacer cola.", "Pw"),
-        Indicador("Lq", "Clientes en cola", Valor(r["Lq"]), "Longitud media de la línea de espera.", "Lq"),
-        Indicador("L", "Clientes en el sistema", Valor(r["L"]), "En cola más en servicio.", "L"),
+        Indicador(simbolo_espera(finita), "Probabilidad de esperar", Valor(r["frac_espera"]),
+                  "Probabilidad de que una unidad que llega tenga que esperar.", "Pw"),
+        Indicador("Lq", "Clientes en cola", Valor(r["Lq"], sufijo=" clientes"), "Longitud media de la línea de espera.",
+                  "Lq"),
+        Indicador("L", "Clientes en el sistema", Valor(r["L"], sufijo=" clientes"), "En cola más en servicio.", "L"),
         Indicador("Wq", "Tiempo en cola", Valor(r["Wq"], "tiempo"), "Espera media antes de ser atendido.", "Wq"),
         Indicador("W", "Tiempo en el sistema", Valor(r["W"], "tiempo"), "Espera más servicio.", "W"),
     ]
-    if r["finita"]:
-        lista.append(Indicador("M−L", "Unidades operando", Valor(r["operando"]),
+    if finita:
+        lista.append(Indicador("M−L", "Unidades operando", Valor(r["operando"], sufijo=" unidades"),
                                "Unidades de la población fuera del sistema.", "operando"))
     return lista
 
 
+# Filas de Resultados que son probabilidades: decimal en «Valor» y su porcentaje en «Valor (%)»
+_PROBABILIDADES = {"P0", "Pw", "frac_no_espera", "Plt", "Pk", "Pgt"}
+
+
+def _fila_resultado(simbolo, nombre, valor, ayuda, etiquetas, clave):
+    es_prob = clave in _PROBABILIDADES or clave.startswith("Pn:")
+    return Fila([simbolo, nombre, valor, Valor(valor.dato, "pct") if es_prob else "", ayuda], etiquetas, clave)
+
+
 def tabla_resultados(esc):
-    cols = [Columna("Símbolo", False), Columna("Medida", False), Columna("Valor"),
+    """
+    Símbolo | Medida | Valor | Valor (%) | Interpretación. Las probabilidades van en decimal con su
+    porcentaje en la columna de al lado (como en «Probabilidades»); ρ y % operando, en %.
+    """
+    cols = [Columna("Símbolo", False), Columna("Medida", False), Columna("Valor"), Columna("Valor (%)"),
             Columna("Interpretación", False)]
     t = Tabla("Resultados", cols, mensaje_vacio="Sin resultados: el sistema es inestable con estos datos.")
     r = esc.r
     if not r["ok"]:
         return t
+    finita = r["finita"]
+    pk = simbolo_espera(finita)
     for ind in indicadores_principales(esc):
-        t.filas.append(Fila([ind.simbolo, ind.nombre, ind.valor, ind.ayuda], ("principal",), ind.clave))
-    if r["finita"]:
-        t.filas.append(Fila(["λef", "λ efectiva", Valor(r["lam_ef"], sufijo=" /h"),
-                             "λ(M − L): llegadas reales por hora."], ("principal",), "lam_ef"))
-        t.filas.append(Fila(["%op", "Fracción de la población operando", Valor(r["frac_operando"], "pct"),
-                             "(M − L) ÷ M."], (), "frac_operando"))
-    pw_det = " (vista por quien llega)." if r["finita"] else " (= P(n≥k))."
+        t.filas.append(_fila_resultado(ind.simbolo, ind.nombre, ind.valor, ind.ayuda, ("principal",), ind.clave))
+    if finita:
+        t.filas.append(_fila_resultado("λef", "λ efectiva", Valor(r["lam_ef"], "tasa"),
+                                       "λ(M − L): llegadas reales.", ("principal",), "lam_ef"))
+        t.filas.append(_fila_resultado("%op", "Porcentaje de la población operando",
+                                       Valor(r["frac_operando"], "pct"), "(M − L) ÷ M.", (), "frac_operando"))
     secundarias = [
-        ("1−Pw", "Probabilidad de no esperar", Valor(r["frac_no_espera"]), "Atendidos en cuanto llegan.",
+        (f"1−{pk}", "Probabilidad de no esperar", Valor(r["frac_no_espera"]), "Atendidos en cuanto llegan.",
          "frac_no_espera"),
         ("P(n<k)", "Algún servidor libre", Valor(r["Plt"]), "Uno o varios desocupados.", "Plt"),
-        ("P(n≥k)", "Todos ocupados", Valor(r["Pk"]), "Proporción del tiempo con todos ocupados" + pw_det, "Pk"),
+    ]
+    if finita:      # en infinita P(n≥k) es Pk: la fila repetiría el indicador principal
+        secundarias.append(("P(n≥k)", "Todos ocupados", Valor(r["Pk"]),
+                            "Proporción del tiempo con todos ocupados (≠ Pw).", "Pk"))
+    secundarias += [
         ("P(n>k)", "Hay línea de espera", Valor(r["Pgt"]), "Al menos un cliente en cola.", "Pgt"),
         ("P(n=k)", "Todos ocupados y nadie esperando", Valor(r["p"][r["k_ef"]]), "", f"Pn:{r['k_ef']}"),
-        ("Wn", "Espera de los que sí esperan", Valor(r["Wn"], "tiempo"), "Wq ÷ probabilidad de esperar.", "Wn"),
-        ("Ln", "Clientes en cola no vacía", Valor(r["Ln"]), "Lq ÷ P(n>k).", "Ln"),
-        ("Ociosos", "Servidores ociosos en promedio", Valor(r["ociosos"]), "Para el costo de ociosidad.",
-         "ociosos"),
+        ("Wn", "Espera de los que sí esperan", Valor(r["Wn"], "tiempo"),
+         f"Wq ÷ {pk}.", "Wn"),
+        ("Ln", "Clientes en la cola no vacía", Valor(r["Ln"], sufijo=" clientes"), "Lq ÷ P(n>k).", "Ln"),
+        ("Ociosos", "Servidores ociosos en promedio", Valor(r["ociosos"], sufijo=" servidores"),
+         "Para el costo de ociosidad.", "ociosos"),
     ]
-    t.filas += [Fila(list(f[:4]), (), f[4]) for f in secundarias]
+    t.filas += [_fila_resultado(*f[:4], (), f[4]) for f in secundarias]
     S = esc.p.S
     if S > 1:
-        t.filas.append(Fila(["S·Lq", f"Clientes en cola ({S} sistemas)", Valor(S * r["Lq"]),
-                             "Suma de las colas de los sistemas idénticos."], ("principal",), "S_Lq"))
-        t.filas.append(Fila(["S·L", f"Clientes en el sistema ({S} sistemas)", Valor(S * r["L"]),
-                             "En cola más en servicio, todos los sistemas."], (), "S_L"))
+        t.filas.append(_fila_resultado("S·Lq", f"Clientes en cola ({S} sistemas)",
+                                       Valor(S * r["Lq"], sufijo=" clientes"),
+                                       "Suma de las colas de los sistemas idénticos.", ("principal",), "S_Lq"))
+        t.filas.append(_fila_resultado("S·L", f"Clientes en el sistema ({S} sistemas)",
+                                       Valor(S * r["L"], sufijo=" clientes"),
+                                       "En cola más en servicio, todos los sistemas.", (), "S_L"))
     return t
 
 
@@ -374,17 +476,18 @@ def tabla_por_dia(esc):
 
 
 def tabla_costos(esc):
-    cols = [Columna("Concepto", False), Columna("Por día"), Columna("Por semana"), Columna("Detalle", False)]
+    cols = [Columna("Concepto", False), Columna("Por día ($)"), Columna("Por semana ($)"), Columna("Detalle", False)]
     t = Tabla("Costos", cols, mensaje_vacio="Sin resultados: el sistema es inestable.")
     c = esc.costos
     if c is None:
         return t
     D, H, S = esc.p.D, esc.p.H, esc.p.S
-    base = esc.p.cfg["base_espera"]
+    e = etiquetas_costo(esc.p.cfg["base_espera"])
     suma = f" (suma de {S} sistemas)" if S > 1 else ""
     filas = [
-        ("CT(S) costo de servidores", c["ct_s"], "k × costo por servidor" + suma, "ct_s"),
-        ("CT(TE) costo del tiempo de espera", c["ct_te"], f"{base} × horas × costo por hora" + suma, "ct_te"),
+        ("CT servidores (sueldo/arriendo)", c["ct_s"], "k × costo por servidor" + suma, "ct_s"),
+        (f"{e.concepto}: {e.nombre.lower()}", c["ct_te"],
+         f"{e.formula}: clientes {e.donde} × horas × costo por hora" + suma, "ct_te"),
         ("Costo de ociosidad", c["ct_ocio"], "Servidores ociosos × horas × costo por hora" + suma, "ct_ocio"),
         ("CT costo total", c["ct"], Valor(c["ct"] / H, "dinero", sufijo=" por hora"), "ct"),
         ("Ingresos", c["ingreso"], "λ efectiva × horas × fracción × ingreso" + suma, "ingreso"),
@@ -404,4 +507,6 @@ def contexto_graficas(esc, unidad_tiempo, mostrar_valores=True):
            + (f", M = {p.M}" if p.finita else "") + f", k actual = {p.k}")
     return {"finita": p.finita, "barrido_k": esc.barrido_k, "barrido_M": esc.barrido_M,
             "k": p.k, "M": p.M, "H": p.H, "unidad_tiempo": unidad_tiempo,
-            "cfg": p.cfg, "subtitulo": sub, "mostrar_valores": mostrar_valores}
+            "cfg": p.cfg, "subtitulo": sub, "mostrar_valores": mostrar_valores,
+            # textos que arma services (visualization no lo importa)
+            "etiqueta_ct_te": etiquetas_costo(p.cfg).encabezado, "simbolo_espera": simbolo_espera(p.finita)}

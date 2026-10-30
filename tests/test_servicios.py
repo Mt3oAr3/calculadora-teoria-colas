@@ -107,7 +107,7 @@ class TestEscenario(unittest.TestCase):
         self.assertEqual(esc.kendall, "M/M/1")
         self.assertIn("estable", cs.mensaje_estado(esc, Formateador()))
         simbolos = [i.simbolo for i in cs.indicadores_principales(esc)]
-        self.assertEqual(simbolos, ["ρ", "P0", "Pw", "Lq", "L", "Wq", "W"])
+        self.assertEqual(simbolos, ["ρ", "P0", "Pk", "Lq", "L", "Wq", "W"])      # Pk en infinita (cátedra)
 
     def test_escenario_inestable_no_muestra_resultados(self):
         esc = cs.calcular_escenario(cs.leer_parametros(entradas(lam="20")))
@@ -221,11 +221,12 @@ class TestExportacion(unittest.TestCase):
         ex.escribir_csv(buf, tablas, self.fmt)
         filas = list(csv.reader(io.StringIO(buf.getvalue()), delimiter=";"))
         self.assertEqual(filas[0], ["Resultados"])
-        self.assertEqual(filas[1], ["Símbolo", "Medida", "Valor", "Interpretación"])
+        self.assertEqual(filas[1], ["Símbolo", "Medida", "Valor", "Valor (%)", "Interpretación"])
         n = len(tablas[0].filas)
         self.assertEqual(filas[2 + n], [])
         self.assertEqual(filas[3 + n], ["Costos"])
-        self.assertEqual(filas[2][:3], ["ρ", "Utilización por servidor", "66,67 %"])
+        self.assertEqual(filas[2][:4], ["ρ", "Utilización por servidor", "66,67 %", ""])
+        self.assertEqual(filas[3][:4], ["P0", "Sistema vacío", "0,3333", "33,33 %"])      # decimal y su %
 
     def test_csv_archivo_utf8_bom(self):
         with tempfile.TemporaryDirectory() as d:

@@ -31,7 +31,7 @@ GRAFICAS = [
     Grafica("Pno_k",   "Probabilidad de no esperar en función de k", "Probabilidades"),
     Grafica("Wq_k",    "Tiempo de espera en cola en función de k", "Tiempos"),
     Grafica("W_k",     "Tiempo en el sistema en función de k", "Tiempos"),
-    Grafica("Costo_k", "Costos diarios en función de k: CT(TE), CT(S), CT", "Costos"),
+    Grafica("Costo_k", "Costos diarios en función de k (CT y sus componentes)", "Costos"),
     Grafica("Costo_M", "Costos diarios en función de M (PFCS / PFCM)", "Costos"),
     Grafica("Pesp_M",  "Probabilidad de esperar en función de M", "Probabilidades"),
     Grafica("Pno_M",   "Probabilidad de no esperar en función de M", "Probabilidades"),
@@ -125,6 +125,8 @@ def dibujar(fig, gid, ctx):
       'k': k actual, 'M': M actual, 'H': horas/día,
       'unidad_tiempo': 'minuto'|'hora'|'día', 'cfg': costos, 'subtitulo': str,
       'mostrar_valores': bool (opcional, por defecto True),
+      'etiqueta_ct_te': str (opcional): «CT servicio (L)» o «CT espera (Lq)», con «+ ocio» si corresponde,
+      'simbolo_espera': str (opcional): «Pk» (infinita) o «Pw» (finita),
       'colores': dict (opcional, ver colores())
     }
     """
@@ -161,7 +163,9 @@ def dibujar(fig, gid, ctx):
         _linea(ax, xs, ys, c["serie"][0], None, c)
         if rotular:
             _etiquetar(ax, xs, ys, c)
-        ax.set_ylabel("Probabilidad", color=c["tinta_2"])
+        simbolo = {"P0": "P0", "Pesp": ctx.get("simbolo_espera", "P(esperar)"),
+                   "Pno": "1−" + ctx.get("simbolo_espera", "P(esperar)")}[gid.split("_")[0]]
+        ax.set_ylabel(f"Probabilidad {simbolo}", color=c["tinta_2"])
         ax.set_ylim(0, 1.08)
     elif gid in ("Wq_k", "Wq_M", "W_k", "W_M"):
         clave = gid.split("_")[0]
@@ -181,9 +185,10 @@ def dibujar(fig, gid, ctx):
             return
         hay_ocio = any(m["ct_ocio"] for m in cs)
         _linea(ax, xs, [m["ct"] for m in cs], c["serie"][0], "CT costo total", c, "o", 2.4)
+        te = ctx.get("etiqueta_ct_te", "CT espera (Lq)").removesuffix(" + ocio")
         _linea(ax, xs, [m["ct_te"] + m["ct_ocio"] for m in cs], c["serie"][1],
-               "CT(TE) tiempo de espera" + (" + ocio" if hay_ocio else ""), c, "s")
-        _linea(ax, xs, [m["ct_s"] for m in cs], c["serie"][2], "CT(S) servidores", c, "D")
+               te + (" + ocio" if hay_ocio else ""), c, "s")
+        _linea(ax, xs, [m["ct_s"] for m in cs], c["serie"][2], "CT servidores", c, "D")
         leyenda = True
         if not por_M:
             i = min(range(len(ct)), key=lambda j: ct[j])

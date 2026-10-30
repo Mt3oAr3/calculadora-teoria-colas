@@ -23,6 +23,7 @@ from domain import costos as dc
 from domain import modelos_colas as mc
 from domain.unidades import ABREV, horas_por_unidad
 
+from .calculadora_service import etiquetas_costo, simbolo_espera
 from .tablas import Valor
 
 MAX_TERMINOS = 4        # términos que se muestran al desarrollar una suma
@@ -67,6 +68,9 @@ class _Ctx:
         self.finita = esc.p.finita
         self.k = self.r.get("k_ef", self.p.k)
         self.S = self.p.S
+        # Probabilidad de esperar: Pk en infinita (notación de la cátedra), Pw en finita
+        self.pk = simbolo_espera(self.finita)
+        self.pk_tex = "P_w" if self.finita else "P_k"
 
     def n(self, x, d=None):
         """Número con coma decimal; {,} evita el espacio que mathtext pone tras la coma."""
@@ -76,6 +80,19 @@ class _Ctx:
     def dinero(self, x, d=2):
         """Monto con 2 decimales; d=None usa los decimales elegidos (valores intermedios)."""
         return r"\$\," + self.n(x, d)
+
+    def pct(self, x):
+        """Porcentaje con coma decimal y signo % escapado para mathtext."""
+        return self.fmt.pct(x).replace(",", "{,}").replace("%", r"\%")
+
+    def tasa(self, por_hora):
+        """Tasa en clientes por hora y, si se eligió otra unidad, también por esa unidad."""
+        txt = self.n(por_hora) + r"\ \mathrm{clientes/h}"
+        u = self.fmt.unidad_tiempo
+        if u != "hora":
+            por_unidad = por_hora * horas_por_unidad(u, self.fmt.horas_dia)
+            txt += " = " + self.n(por_unidad) + r"\ \mathrm{clientes/" + ABREV[u] + "}"
+        return txt
 
     def horas(self, h):
         """Tiempo en horas y, si se eligió otra unidad, también en esa unidad."""
@@ -126,7 +143,8 @@ def _rho(c):
         return _f("rho", "Utilización de los servidores ρ",
                   r"\rho = " + _fr(r"k - \bar{s}", "k") + r",\quad \bar{s} = \sum_{n=0}^{k-1}(k-n)\,P_n",
                   [r"\bar{s} = " + n(r["ociosos"]) + r"\ \mathrm{servidores\ ociosos}",
-                   r"\rho = " + _fr(f"{c.k} - " + n(r["ociosos"]), str(c.k)) + " = " + n(r["util"])],
+                   r"\rho = " + _fr(f"{c.k} - " + n(r["ociosos"]), str(c.k)) + " = " + n(r["util"]) + " = "
+                   + c.pct(r["util"])],
                   Valor(r["util"], "pct"),
                   "En población finita la utilización es la fracción de servidores ocupados en promedio: "
                   "k menos los servidores ociosos esperados, dividido entre k." + nota)
@@ -135,9 +153,10 @@ def _rho(c):
     else:
         latex = r"\rho = " + _fr(r"\lambda", r"k\,\mu")
         sust = _fr(n(r["lam"]), f"{c.k}" + r" \cdot " + n(r["mu"]))
-    return _f("rho", "Utilización por servidor ρ", latex, [r"\rho = " + sust + " = " + n(r["rho"])],
+    return _f("rho", "Utilización por servidor ρ", latex,
+              [r"\rho = " + sust + " = " + n(r["rho"]) + " = " + c.pct(r["rho"])],
               Valor(r["util"], "pct"),
-              "Fracción del tiempo que cada servidor está ocupado. λ y μ están en clientes por hora. "
+              "Porcentaje del tiempo que cada servidor está ocupado. λ y μ están en clientes por hora. "
               "El sistema es estable solo si ρ < 1.")
 
 
@@ -180,23 +199,25 @@ def _pw(c):
                   + _fr(r"\sum_{n=k}^{M}(M-n)\,P_n", "M-L"),
                   [r"P_w = " + _fr(n(num), n(r["operando"])) + " = " + n(r["frac_espera"])],
                   Valor(r["frac_espera"]),
-                  "Probabilidad de que una unidad que llega encuentre todos los servidores ocupados. En población "
-                  "finita las llegadas son proporcionales a las unidades fuera del sistema (M − n).")
+                  "Probabilidad de que una unidad que llega tenga que esperar (todos los servidores ocupados). En "
+                  "población finita las llegadas son proporcionales a las unidades fuera del sistema (M − n), por eso "
+                  "difiere de P(n ≥ k).")
     if k == 1:
-        return _f("Pw", "Probabilidad de esperar Pw", r"P_w = P(n \geq 1) = \rho",
-                  [r"P_w = " + n(r["rho"])], Valor(r["frac_espera"]),
-                  "En M/M/1 un cliente espera si el servidor está ocupado, lo que ocurre una fracción ρ del tiempo.")
+        return _f("Pw", "Probabilidad de esperar Pk", r"P_k = P(n \geq 1) = \rho",
+                  [r"P_k = " + n(r["rho"])], Valor(r["frac_espera"]),
+                  "Probabilidad de que una unidad que llega tenga que esperar. En M/M/1 espera si el servidor "
+                  "está ocupado, lo que ocurre una fracción ρ del tiempo.")
     ak = c.cociente_p0(k)
     kmu = f"{k}" + r"\cdot " + n(r["mu"])
     factor = k * r["mu"] / (k * r["mu"] - r["lam"])
-    return _f("Pw", "Probabilidad de esperar Pw (Erlang C)",
-              r"P_w = " + _fr("a^k", "k!") + r"\cdot" + _fr(r"k\mu", r"k\mu-\lambda") + r"\cdot P_0",
+    return _f("Pw", "Probabilidad de esperar Pk (Erlang C)",
+              r"P_k = " + _fr("a^k", "k!") + r"\cdot" + _fr(r"k\mu", r"k\mu-\lambda") + r"\cdot P_0",
               [_fr(_pot("a", k), f"{k}!") + " = " + _fr(_pot(n(r["a"]), k), f"{k}!") + " = " + n(ak),
                _fr(r"k\mu", r"k\mu-\lambda") + " = " + _fr(kmu, kmu + " - " + n(r["lam"])) + " = " + n(factor),
-               r"P_w = " + n(ak) + r"\cdot " + n(factor) + r"\cdot " + n(r["P0"]) + " = " + n(r["frac_espera"])],
+               r"P_k = " + n(ak) + r"\cdot " + n(factor) + r"\cdot " + n(r["P0"]) + " = " + n(r["frac_espera"])],
               Valor(r["frac_espera"]),
-              "Fórmula de Erlang C: probabilidad de que un cliente que llega encuentre los k servidores ocupados "
-              "y deba hacer cola. Es igual a P(n ≥ k).")
+              "Fórmula de Erlang C: probabilidad de que una unidad que llega tenga que esperar (encuentra los k "
+              "servidores ocupados). Es igual a P(n ≥ k).")
 
 
 def _lq(c):
@@ -204,19 +225,20 @@ def _lq(c):
     if c.finita:
         terminos = [f"{i - k}" + r"\cdot " + n(c.pn(i)) for i in range(k + 1, c.p.M + 1)]
         return _f("Lq", "Clientes en cola Lq", r"L_q = \sum_{n=k+1}^{M}(n-k)\,P_n",
-                  c.suma(r"L_q", terminos, r["Lq"]), Valor(r["Lq"]),
+                  c.suma(r"L_q", terminos, r["Lq"]), Valor(r["Lq"], sufijo=" clientes"),
                   "Número medio de unidades esperando: cada estado con n > k aporta n − k unidades en cola, "
                   "ponderado por su probabilidad.")
     if k == 1:
         return _f("Lq", "Clientes en cola Lq", r"L_q = " + _fr(r"\rho^2", r"1-\rho"),
                   [r"L_q = " + _fr(_pot(n(r["rho"]), 2), "1 - " + n(r["rho"])) + " = " + n(r["Lq"])],
-                  Valor(r["Lq"]), "Número medio de clientes esperando en la cola de un M/M/1.")
+                  Valor(r["Lq"], sufijo=" clientes"), "Número medio de clientes esperando en la cola de un M/M/1.")
     ak = c.cociente_p0(k)
     return _f("Lq", "Clientes en cola Lq",
               r"L_q = P_0\cdot" + _fr("a^k", "k!") + r"\cdot" + _fr(r"\rho", r"(1-\rho)^2"),
               [r"L_q = " + n(r["P0"]) + r"\cdot " + n(ak) + r"\cdot" + _fr(n(r["rho"]), "(1 - " + n(r["rho"]) + ")^2")
                + " = " + n(r["Lq"])],
-              Valor(r["Lq"]), "Número medio de clientes esperando en la cola de un M/M/k (a = λ/μ).")
+              Valor(r["Lq"], sufijo=" clientes"),
+              "Número medio de clientes esperando en la cola de un M/M/k (a = λ/μ).")
 
 
 def _l(c):
@@ -224,10 +246,11 @@ def _l(c):
     if c.finita:
         terminos = [f"{i}" + r"\cdot " + n(c.pn(i)) for i in range(1, c.p.M + 1)]
         return _f("L", "Clientes en el sistema L", r"L = \sum_{n=0}^{M} n\,P_n",
-                  c.suma(r"L", terminos, r["L"]), Valor(r["L"]),
+                  c.suma(r"L", terminos, r["L"]), Valor(r["L"], sufijo=" clientes"),
                   "Número medio de unidades en el sistema (en cola más en servicio).")
     return _f("L", "Clientes en el sistema L", r"L = L_q + " + _fr(r"\lambda", r"\mu"),
-              [r"L = " + n(r["Lq"]) + " + " + _fr(n(r["lam"]), n(r["mu"])) + " = " + n(r["L"])], Valor(r["L"]),
+              [r"L = " + n(r["Lq"]) + " + " + _fr(n(r["lam"]), n(r["mu"])) + " = " + n(r["L"])],
+              Valor(r["L"], sufijo=" clientes"),
               "Clientes en cola más los que están siendo atendidos (λ/μ servidores ocupados en promedio).")
 
 
@@ -394,10 +417,11 @@ def _pk(c):
                   "Fracción del tiempo con todos los servidores ocupados. En población finita no coincide con la "
                   "probabilidad de esperar vista por quien llega (Pw).")
     cola = r["Pk"] / r["P0"] if r["P0"] > 0 else float("nan")
-    return _f("Pk", "Todos ocupados P(n≥k)",
-              r"P(n \geq k) = " + _fr("a^k", "k!") + r"\cdot" + _fr("1", r"1-\rho") + r"\cdot P_0",
+    return _f("Pk", "Probabilidad de esperar Pk = P(n≥k)",
+              r"P_k = P(n \geq k) = " + _fr("a^k", "k!") + r"\cdot" + _fr("1", r"1-\rho") + r"\cdot P_0",
               [r"P(n \geq " + str(k) + ") = " + n(cola) + r"\cdot " + n(r["P0"]) + " = " + n(r["Pk"])],
-              Valor(r["Pk"]), "Fracción del tiempo con los k servidores ocupados; en población infinita es Pw.")
+              Valor(r["Pk"]), "Fracción del tiempo con los k servidores ocupados; en población infinita es también "
+                              "la probabilidad de que una unidad que llega tenga que esperar.")
 
 
 def _pgt(c):
@@ -414,7 +438,7 @@ def _pgt(c):
 
 def _no_espera(c):
     r, n = c.r, c.n
-    return _f("frac_no_espera", "Probabilidad de no esperar", r"P(\mathrm{no\ esperar}) = 1 - P_w",
+    return _f("frac_no_espera", f"Probabilidad de no esperar 1−{c.pk}", r"P(\mathrm{no\ esperar}) = 1 - " + c.pk_tex,
               [r"P(\mathrm{no\ esperar}) = 1 - " + n(r["frac_espera"]) + " = " + n(r["frac_no_espera"])],
               Valor(r["frac_no_espera"]),
               "Fracción de clientes que son atendidos en cuanto llegan.")
@@ -426,16 +450,18 @@ def _wn(c):
         return _f("Wn", "Espera de los que sí esperan Wn", r"W_n = " + _fr("W_q", "P_w"),
                   [r"W_n = " + _fr(n(r["Wq"]), n(r["frac_espera"])) + " = " + c.horas(r["Wn"])],
                   Valor(r["Wn"], "tiempo"), "Espera media en cola contando solo a quienes deben esperar.")
-    return _f("Wn", "Espera de los que sí esperan Wn", r"W_n = " + _fr("1", r"k\mu - \lambda"),
-              [r"W_n = " + _fr("1", f"{k}" + r"\cdot " + n(r["mu"]) + " - " + n(r["lam"])) + " = " + c.horas(r["Wn"])],
-              Valor(r["Wn"], "tiempo"), "Espera media en cola de los clientes que sí deben esperar (en horas).")
+    return _f("Wn", "Espera de los que sí esperan Wn",
+              r"W_n = " + _fr("W_q", "P_k") + " = " + _fr("1", r"k\mu - \lambda"),
+              [r"W_n = " + _fr("1", f"{k}" + r"\cdot " + n(r["mu"]) + " - " + n(r["lam"])) + " = " + c.horas(r["Wn"]),
+               r"W_n = " + _fr(n(r["Wq"]), n(r["Pk"])) + " = " + c.horas(r["Wn"])],
+              Valor(r["Wn"], "tiempo"), "Espera media en cola de los clientes que sí esperan: Wq ÷ Pk (en horas).")
 
 
 def _ln(c):
     r, n = c.r, c.n
-    return _f("Ln", "Clientes en cola no vacía Ln", r"L_n = " + _fr("L_q", "P(n > k)"),
-              [r"L_n = " + _fr(n(r["Lq"]), n(r["Pgt"])) + " = " + n(r["Ln"])], Valor(r["Ln"]),
-              "Longitud media de la cola cuando hay al menos un cliente esperando.")
+    return _f("Ln", "Clientes en la cola no vacía Ln", r"L_n = " + _fr("L_q", "P(n > k)"),
+              [r"L_n = " + _fr(n(r["Lq"]), n(r["Pgt"])) + " = " + n(r["Ln"])], Valor(r["Ln"], sufijo=" clientes"),
+              "Número medio de clientes en la cola cuando la cola no está vacía (hay al menos uno esperando).")
 
 
 def _ociosos(c):
@@ -443,35 +469,41 @@ def _ociosos(c):
     if c.finita:
         terminos = [f"{k - i}" + r"\cdot " + n(c.pn(i)) for i in range(k)]
         return _f("ociosos", "Servidores ociosos en promedio", r"\bar{s} = \sum_{n=0}^{k-1}(k-n)\,P_n",
-                  c.suma(r"\bar{s}", terminos, r["ociosos"]), Valor(r["ociosos"]),
+                  c.suma(r"\bar{s}", terminos, r["ociosos"]), Valor(r["ociosos"], sufijo=" servidores"),
                   "Servidores desocupados en promedio: con n < k hay k − n libres.")
     return _f("ociosos", "Servidores ociosos en promedio", r"\bar{s} = k - " + _fr(r"\lambda", r"\mu"),
               [r"\bar{s} = " + str(k) + " - " + _fr(n(r["lam"]), n(r["mu"])) + " = " + n(r["ociosos"])],
-              Valor(r["ociosos"]), "Servidores contratados menos los ocupados en promedio (λ/μ).")
+              Valor(r["ociosos"], sufijo=" servidores"), "Servidores contratados menos los ocupados en promedio (λ/μ).")
 
 
 def _operando(c):
     r, n = c.r, c.n
     return _f("operando", "Unidades operando M − L", r"M - L = \sum_{n=0}^{M}(M-n)\,P_n",
-              [r"M - L = " + str(c.p.M) + " - " + n(r["L"]) + " = " + n(r["operando"])], Valor(r["operando"]),
+              [r"M - L = " + str(c.p.M) + " - " + n(r["L"]) + " = " + n(r["operando"])],
+              Valor(r["operando"], sufijo=" unidades"),
               "Unidades de la población que están fuera del sistema (funcionando).")
 
 
 def _lam_ef(c):
-    return _f("lam_ef", "λ efectiva", r"\lambda_{ef} = \lambda\,(M-L)", [_paso_lam_ef(c)],
-              Valor(c.r["lam_ef"], sufijo=" /h"), "Llegadas reales por hora: solo llegan las unidades que operan.")
+    r, n = c.r, c.n
+    paso = (r"\lambda_{ef} = \lambda\,(M-L) = " + n(r["lam"]) + r"\cdot " + n(r["operando"]) + " = "
+            + c.tasa(r["lam_ef"]))
+    return _f("lam_ef", "λ efectiva", r"\lambda_{ef} = \lambda\,(M-L)", [paso],
+              Valor(r["lam_ef"], "tasa"),
+              "Llegadas reales: solo llegan las unidades que operan (λ por hora y por unidad).")
 
 
 def _frac_operando(c):
     r, n = c.r, c.n
-    return _f("frac_operando", "Fracción de la población operando", _fr("M-L", "M"),
-              [_fr(n(r["operando"]), str(c.p.M)) + " = " + n(r["frac_operando"])], Valor(r["frac_operando"], "pct"),
+    return _f("frac_operando", "Porcentaje de la población operando", _fr("M-L", "M"),
+              [_fr(n(r["operando"]), str(c.p.M)) + " = " + n(r["frac_operando"]) + " = " + c.pct(r["frac_operando"])],
+              Valor(r["frac_operando"], "pct"),
               "Proporción de unidades de la población fuera del sistema.")
 
 
 def _s_mult(c, clave, simbolo, nombre, valor_uno, total):
     return _f(clave, f"{nombre} de los {c.S} sistemas", "S \\cdot " + simbolo,
-              [str(c.S) + r"\cdot " + c.n(valor_uno) + " = " + c.n(total)], Valor(total),
+              [str(c.S) + r"\cdot " + c.n(valor_uno) + " = " + c.n(total)], Valor(total, sufijo=" clientes"),
               f"Los {c.S} sistemas son idénticos e independientes: el total es S veces el de uno.")
 
 
@@ -487,37 +519,43 @@ def _nota_S(c):
     return f" Se suman los {c.S} sistemas idénticos." if c.S > 1 else ""
 
 
+_CT_S = r"CT_{\mathrm{servidores}}"
+
+
 def _ct_s(c):
     cfg, H, k = c.p.cfg, c.p.H, c.r["k"]
     s, sv = _pref_S(c)
     if cfg["c_servidor_u"] == "hora":
-        latex = r"CT(S) = " + s + r"k\cdot C_s\cdot H"
+        latex = _CT_S + " = " + s + r"k\cdot C_s\cdot H"
         paso = sv + f"{k}" + r"\cdot " + c.dinero(cfg["c_servidor"]) + r"\cdot " + c.n(H)
         expl = "Costo diario de los k servidores contratados: costo por hora × horas de operación."
     else:
-        latex = r"CT(S) = " + s + r"k\cdot C_s"
+        latex = _CT_S + " = " + s + r"k\cdot C_s"
         paso = sv + f"{k}" + r"\cdot " + c.dinero(cfg["c_servidor"])
         expl = "Costo diario de los k servidores contratados (costo por día de cada uno)."
-    return _f("ct_s", "CT(S) costo de servidores", latex, [r"CT(S) = " + paso + " = " + c.dinero(c.c["ct_s"])],
-              Valor(c.c["ct_s"], "dinero"), expl + _nota_S(c))
+    return _f("ct_s", "CT servidores (sueldo/arriendo)", latex, [_CT_S + " = " + paso + " = " + c.dinero(c.c["ct_s"])],
+              Valor(c.c["ct_s"], "dinero"), expl + " No depende de L ni de Lq." + _nota_S(c))
 
 
 def _ct_te(c):
+    """CT servicio = S·L·H·costo por hora (base L) o CT espera = S·Lq·H·costo por hora (base Lq)."""
     cfg, H, r = c.p.cfg, c.p.H, c.r
     s, sv = _pref_S(c)
-    base = cfg["base_espera"]
-    simb = "L_q" if base == "Lq" else "L"
+    e = etiquetas_costo(cfg["base_espera"])
+    simb = "L_q" if e.base == "Lq" else "L"
+    nombre = "servicio" if e.base == "L" else "espera"
+    ct, cw = r"CT_{\mathrm{" + nombre + "}}", r"C_{\mathrm{" + nombre + "}}"
     cw_hora = cfg["c_espera"] / horas_por_unidad(cfg["c_espera_u"], H)
     pasos = []
     if cfg["c_espera_u"] != "hora":
-        pasos.append(r"C_w = " + _fr(c.dinero(cfg["c_espera"]), c.n(horas_por_unidad(cfg["c_espera_u"], H))
-                                     + r"\ \mathrm{h}") + " = " + c.dinero(cw_hora, None) + r"\ \mathrm{por\ hora}")
-    pasos.append(r"CT(TE) = " + sv + c.n(r[base]) + r"\cdot " + c.n(H) + r"\cdot " + c.dinero(cw_hora, None)
+        pasos.append(cw + " = " + _fr(c.dinero(cfg["c_espera"]), c.n(horas_por_unidad(cfg["c_espera_u"], H))
+                                      + r"\ \mathrm{h}") + " = " + c.dinero(cw_hora, None) + r"\ \mathrm{por\ hora}")
+    pasos.append(ct + " = " + sv + c.n(r[e.base]) + r"\cdot " + c.n(H) + r"\cdot " + c.dinero(cw_hora, None)
                  + " = " + c.dinero(c.c["ct_te"]))
-    return _f("ct_te", "CT(TE) costo del tiempo de espera", r"CT(TE) = " + s + simb + r"\cdot H\cdot C_w", pasos,
+    return _f("ct_te", f"{e.concepto}: {e.nombre.lower()}", ct + " = " + s + simb + r"\cdot H\cdot " + cw, pasos,
               Valor(c.c["ct_te"], "dinero"),
-              f"Clientes en {'cola' if base == 'Lq' else 'el sistema'} en promedio × horas de operación × costo por "
-              "hora de espera de cada cliente." + _nota_S(c))
+              f"Clientes {e.donde} en promedio ({e.base}) × horas de operación × {e.nombre.lower()} por cliente y "
+              "por hora." + _nota_S(c))
 
 
 def _ct_ocio(c):
@@ -532,7 +570,9 @@ def _ct_ocio(c):
 
 def _ct(c):
     m = c.c
-    return _f("ct", "CT costo total diario", r"CT = CT(S) + CT(TE) + CT(ocio)",
+    nombre = "servicio" if c.p.cfg["base_espera"] == "L" else "espera"
+    return _f("ct", "CT costo total diario",
+              r"CT = " + _CT_S + r" + CT_{\mathrm{" + nombre + r"}} + CT_{\mathrm{ocio}}",
               [r"CT = " + c.dinero(m["ct_s"]) + " + " + c.dinero(m["ct_te"]) + " + " + c.dinero(m["ct_ocio"])
                + " = " + c.dinero(m["ct"])],
               Valor(m["ct"], "dinero"), "Costo total por día de operación." + _nota_S(c),
@@ -584,7 +624,7 @@ def _clientes(c, i):
     concepto, v = dc.clientes_por_dia(c.r, c.p.H)[i]
     r, H, n = c.r, c.p.H, c.n
     lam = r"\lambda_{ef}" if c.finita else r"\lambda"
-    latex = [lam + r"\cdot H", lam + r"\cdot H\cdot P_w", lam + r"\cdot H\cdot (1 - P_w)"][i]
+    latex = [lam + r"\cdot H", lam + r"\cdot H\cdot " + c.pk_tex, lam + r"\cdot H\cdot (1 - " + c.pk_tex + ")"][i]
     base = n(r["lam_ef"]) + r"\cdot " + n(H)
     paso = [base, base + r"\cdot " + n(r["frac_espera"]), base + r"\cdot " + n(r["frac_no_espera"])][i]
     return _f(f"clientes:{i}", concepto, latex, [paso + " = " + n(v)], Valor(v, sufijo=" clientes"),
@@ -604,7 +644,7 @@ def _sistemas(c, i):
         (r"P_0^{\,S}\cdot H", _pot(n(r["P0"]), S) + r"\cdot " + n(H)),
         (r"S\cdot L_q\cdot H", S + r"\cdot " + n(r["Lq"]) + r"\cdot " + n(H)),
         (r"S\cdot " + lam + r"\cdot H", S + r"\cdot " + n(r["lam_ef"]) + r"\cdot " + n(H)),
-        (r"S\cdot " + lam + r"\cdot H\cdot P_w",
+        (r"S\cdot " + lam + r"\cdot H\cdot " + c.pk_tex,
          S + r"\cdot " + n(r["lam_ef"]) + r"\cdot " + n(H) + r"\cdot " + n(r["frac_espera"])),
     ]
     latex, paso = formulas[i]

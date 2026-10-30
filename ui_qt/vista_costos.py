@@ -19,8 +19,7 @@ from .estado_vacio import EstadoVacio
 from .vista_tabla import VistaTabla, encabezado_pagina
 
 CAMPOS_COSTO = ("c_servidor", "c_espera", "c_ocio", "ingreso")
-VACIO = ("$", "Aún no hay costos ingresados",
-         "Completa «Costos e ingresos» en el panel de parámetros y pulsa Calcular.", "Ir a Costos e ingresos")
+VACIO = ("$", "Aún no hay costos ingresados", cs.texto_sin_costos("Lq"), "Ir a Costos e ingresos")
 FILA_RENTABILIDAD = "rentabilidad"
 
 
@@ -71,6 +70,7 @@ class PaginaCostos(QWidget):
 
     def mostrar(self, esc, fmt):
         if esc.costos is not None and sin_costos(esc):
+            self.vacio.texto.setText(cs.texto_sin_costos(esc.p.cfg))
             self.tabla_cost.mostrar_estado_vacio()
         else:
             self.tabla_cost.mostrar(_tabla_costos_vista(esc) if esc.costos else cs.tabla_costos(esc), fmt)

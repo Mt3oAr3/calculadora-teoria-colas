@@ -16,7 +16,7 @@ from domain import modelos_colas as mc
 from domain import unidades as du
 from domain.errores import ErrorEntrada
 
-from .calculadora_service import Escenario
+from .calculadora_service import Escenario, etiquetas_costo, simbolo_espera
 from .tablas import Columna, Fila, Tabla, Valor
 
 OPERADORES = ["≤", "≥"]
@@ -29,15 +29,28 @@ class Metrica:
     clave: str
     es_tiempo: bool = False
     solo_finita: bool = False
+    # Texto en la lista según la población: (infinita, finita); vacío = siempre `nombre`
+    etiquetas: tuple = ()
+    # En infinita repite otra métrica (P(n≥k) es Pk): no se ofrece en la lista
+    repetida_en_infinita: bool = False
+
+    def texto(self, finita):
+        """Texto de la métrica en la lista y en la condición para la población elegida."""
+        return self.etiquetas[1 if finita else 0] if self.etiquetas else self.nombre
+
+    def disponible(self, finita):
+        return finita or not (self.solo_finita or self.repetida_en_infinita)
 
 
 # Las de tiempo se comparan en la unidad elegida en «Mostrar tiempos en».
 METRICAS = [
     Metrica("P0 (sistema vacío)", "P0"),
     Metrica("P(n<k) algún servidor libre", "Plt"),
-    Metrica("Probabilidad de esperar", "frac_espera"),
-    Metrica("Probabilidad de no esperar", "frac_no_espera"),
-    Metrica("P(n≥k) todos ocupados", "Pk"),
+    Metrica("Probabilidad de esperar", "frac_espera",
+            etiquetas=("Pk (probabilidad de esperar)", "Pw (probabilidad de esperar)")),
+    Metrica("Probabilidad de no esperar", "frac_no_espera",
+            etiquetas=("1−Pk (probabilidad de no esperar)", "1−Pw (probabilidad de no esperar)")),
+    Metrica("P(n≥k) todos ocupados", "Pk", repetida_en_infinita=True),
     Metrica("P(n>k) hay cola", "Pgt"),
     Metrica("L (clientes en el sistema)", "L"),
     Metrica("Lq (clientes en cola)", "Lq"),
@@ -48,7 +61,8 @@ METRICAS = [
     Metrica("Costo total diario CT", "ct"),
 ]
 METRICA_INICIAL = "Probabilidad de esperar"
-_POR_NOMBRE = {m.nombre: m for m in METRICAS}
+# Se buscan por su nombre o por cualquiera de sus textos según la población
+_POR_NOMBRE = {texto: m for m in METRICAS for texto in (m.nombre, *m.etiquetas)}
 # Clave de cada métrica en services.formulas.formula: la misma, salvo la probabilidad de esperar
 _CLAVE_FORMULA = {"frac_espera": "Pw"}
 TIPOS_FILA = ("k", "M")
@@ -57,6 +71,15 @@ TIPOS_FILA = ("k", "M")
 def metrica_por_nombre(nombre):
     """Metrica con ese nombre (el texto de la lista); KeyError si no existe."""
     return _POR_NOMBRE[nombre]
+
+
+def metricas_disponibles(finita):
+    """Textos de la lista de métricas para la población elegida (sin las que no aplican o se repiten)."""
+    return [m.texto(finita) for m in METRICAS if m.disponible(finita)]
+
+
+def texto_inicial(finita):
+    return _POR_NOMBRE[METRICA_INICIAL].texto(finita)
 
 
 def clave_formula(metrica):
@@ -105,11 +128,12 @@ class Condicion:
     operador: str
     limite: float
     unidad_tiempo: str
+    texto: str = ""             # texto de la métrica tal como se eligió (p. ej. «Pk (probabilidad de esperar)»)
 
     def describir(self):
         u = f" {du.ABREV[self.unidad_tiempo]}" if self.metrica.es_tiempo else ""
         lim = f"{self.limite:g}".replace(".", ",")
-        return f"{self.metrica.nombre} {self.operador} {lim}{u}"
+        return f"{self.texto or self.metrica.nombre} {self.operador} {lim}{u}"
 
 
 def leer_condicion(nombre_metrica, operador, limite_txt, unidad_tiempo):
@@ -124,7 +148,7 @@ def leer_condicion(nombre_metrica, operador, limite_txt, unidad_tiempo):
         raise ErrorEntrada([("cond_v", f"El valor de la condición «{limite_txt}» no es un número.")]) from None
     if not math.isfinite(limite):
         raise ErrorEntrada([("cond_v", "El valor de la condición debe ser un número finito.")])
-    return Condicion(_POR_NOMBRE[nombre_metrica], operador, limite, unidad_tiempo)
+    return Condicion(_POR_NOMBRE[nombre_metrica], operador, limite, unidad_tiempo, nombre_metrica)
 
 
 def valor_metrica(r, metrica, p, unidad_tiempo):
@@ -164,25 +188,33 @@ class ResultadoComparacion:
     destacados: list = field(default_factory=list)
 
 
-def _columnas(titulos, clave):
-    """La columna de k (o M) y la de CT van en negrita: son las que se leen primero."""
-    return [Columna(t, destacada=t in (clave, "CT")) for t in titulos]
+_CT = "CT ($/día)"
 
 
-def _encabezado_te(p):
-    return "CT(TE)+ocio" if p.cfg["c_ocio"] > 0 else "CT(TE)"
+def _columnas(titulos, clave, p):
+    """
+    En negrita: la columna de k (o M) y la de CT, que son las que se leen primero, y la de L o Lq
+    que gobierna el costo por cliente (la otra queda normal: ambas son medidas distintas).
+    """
+    destacadas = {clave, _CT, etiquetas_costo(p.cfg).base}
+    return [Columna(t, destacada=t in destacadas) for t in titulos]
+
+
+def _titulos_costos(p):
+    """Encabezados de costos: «CT servidores», «CT servicio (L)» o «CT espera (Lq)» (+ ocio) y «CT»."""
+    return ["CT servidores ($/día)", f"{etiquetas_costo(p.cfg).encabezado} ($/día)", _CT]
 
 
 def comparar_k(esc, cond, fmt):
     """Tabla en función de k. En infinita empieza en el k mínimo estable."""
     p = esc.p
     u = fmt.abrev_tiempo
-    titulos = ["k", "ρ", "P0", "P(n<k)", "P(esperar)", "P(n>k)", "Lq", "L",
+    titulos = ["k", "ρ (%)", "P0", "P(n<k)", simbolo_espera(p.finita), "P(n>k)", "Lq", "L",
                f"Wq ({u})", f"W ({u})", f"Wn ({u})"]
     if p.finita:
         titulos.append("% operando")
-    titulos += ["CT(S)", _encabezado_te(p), "CT"]
-    tabla = Tabla("Variando k", _columnas(titulos, "k"))
+    titulos += _titulos_costos(p)
+    tabla = Tabla("Variando k", _columnas(titulos, "k", p))
 
     filas = [(r, dc.costos(r, p.H, p.cfg)) for r in esc.barrido_k if r["ok"]]
     hay_costos = any(c["ct"] > 0 for _, c in filas)
@@ -194,7 +226,7 @@ def comparar_k(esc, cond, fmt):
             primero = r["k"]
         etiquetas = tuple(e for e, activa in (("ok", ok), ("mejor", i == i_mejor), ("actual", r["k"] == p.k))
                           if activa)
-        celdas = [Valor(r["k"], "entero"), Valor(r["util"]), Valor(r["P0"]), Valor(r["Plt"]),
+        celdas = [Valor(r["k"], "entero"), Valor(r["util"], "pct"), Valor(r["P0"]), Valor(r["Plt"]),
                   Valor(r["frac_espera"]), Valor(r["Pgt"]), Valor(r["Lq"]), Valor(r["L"]),
                   Valor(r["Wq"], "tiempo_num"), Valor(r["W"], "tiempo_num"), Valor(r["Wn"], "tiempo_num")]
         if p.finita:
@@ -220,7 +252,8 @@ def comparar_k(esc, cond, fmt):
         ct = fmt.dinero(filas[i_mejor][1]["ct"])
         partes.append(f"Menor costo total: k = {k_mejor} ({ct} por día).")
         destacados.insert(1, Destacado(f"Menor costo total: k = {k_mejor} ({ct}/día)", "k", k_mejor,
-                                       "k con el menor costo total diario CT."))
+                                       f"k con el menor costo total diario: CT = CT servidores + "
+                                       f"{etiquetas_costo(p.cfg).encabezado}."))
     return ResultadoComparacion(tabla, "  ".join(partes), primero, k_mejor, destacados)
 
 
@@ -228,9 +261,9 @@ def comparar_M(esc, cond, fmt):
     """Tabla en función de M (solo población finita) con el k actual."""
     p = esc.p
     u = fmt.abrev_tiempo
-    titulos = ["M", "P0", "P(n<k)", "P(esperar)", "Lq", "L", "M − L", "% operando",
-               f"Wq ({u})", f"W ({u})", "CT(S)", _encabezado_te(p), "CT"]
-    tabla = Tabla("Variando M", _columnas(titulos, "M"),
+    titulos = ["M", "P0", "P(n<k)", simbolo_espera(True), "Lq", "L", "M − L", "% operando",
+               f"Wq ({u})", f"W ({u})", *_titulos_costos(p)]
+    tabla = Tabla("Variando M", _columnas(titulos, "M", p),
                   mensaje_vacio="La tabla en función de M solo aplica a población finita.")
     if not p.finita:
         return ResultadoComparacion(tabla, "Tabla en función de M: solo para población finita.")

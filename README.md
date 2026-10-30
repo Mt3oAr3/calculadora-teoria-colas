@@ -33,8 +33,8 @@ Supuestos relevantes:
 - Panel de parámetros agrupado: modelo, capacidad y población, llegadas y servicio
   (como tasa o como tiempo, en minutos, horas o días), configuración operativa,
   costos e ingresos, rango de análisis y presentación (unidad de tiempo y decimales).
-- Tarjetas con los indicadores principales: ρ, P0, probabilidad de esperar, Lq, L,
-  Wq, W (y M − L en población finita) y estado de estabilidad.
+- Tarjetas con los indicadores principales: ρ, P0, probabilidad de esperar (Pk; Pw en
+  población finita), Lq, L, Wq, W (y M − L en población finita) y estado de estabilidad.
 - Pestañas: **Resultados** (todas las medidas), **Probabilidades** (P(n = a), rangos,
   probabilidades de la cola y distribución completa), **Por día y costos**,
   **Comparar k y M** (búsqueda por condición y menor costo) y **Gráficas**.
@@ -94,7 +94,7 @@ calculadora_colas/
 ├── domain/                      Matemática pura (sin Tkinter ni matplotlib)
 │   ├── modelos_colas.py         Fórmulas M/M/k y M/M/k/M/M, probabilidades, barridos de k y M
 │   ├── unidades.py              Conversión de tasas/tiempos a «por hora»
-│   ├── costos.py                CT(S), CT(TE), ocio, ingresos, horas por estado
+│   ├── costos.py                Costo de servidores, de servicio/espera, ocio, ingresos, horas por estado
 │   └── errores.py               ErrorEntrada (dato inválido) y ErrorModelo (limitación numérica)
 ├── services/                    Coordinación entre la interfaz y el dominio (sin Tkinter)
 │   ├── calculadora_service.py   Validación del formulario, escenario, tablas e indicadores
@@ -141,6 +141,7 @@ calculadora_colas/
     ├── datos/referencia_original.json
     ├── test_modelos.py  test_unidades.py  test_costos.py  test_formulas.py  test_ventana_qt.py  test_contraste.py
     ├── test_servicios.py  test_comparaciones.py  test_arquitectura.py
+    └── test_documento_catedra.py  Ejemplos del documento de la cátedra, notación, costos y unidades
 ```
 
 Reglas de dependencia (verificadas por `tests/test_arquitectura.py`):
@@ -163,7 +164,9 @@ En **Comparar k y M**, un clic en una fila abre la fórmula de la métrica elegi
 condición de búsqueda para ese k o M (p. ej. «Wq para k = 3»). Las filas llevan la clave
 `cmp:k:3` / `cmp:M:7`; `comparacion_service.escenario_de_fila()` arma el escenario de esa fila
 con el mismo resultado del barrido (sin recalcular) y `clave_formula()` traduce la métrica a la
-clave de `formulas` (la identidad salvo «Probabilidad de esperar» → `Pw`). La fila queda
+clave de `formulas` (la identidad salvo la probabilidad de esperar, «Pk» o «Pw» en la lista → `Pw`).
+La lista de métricas depende de la población: en infinita no ofrece las que solo aplican a
+población finita ni «P(n≥k) todos ocupados», que ahí es Pk. La fila queda
 resaltada; cambiar la métrica actualiza la fórmula de la misma fila y, si tras recalcular la fila
 ya no está, el panel se cierra. Sobre cada tabla, unos chips resumen lo importante («Menor k que
 cumple», «Menor costo total», «Mínimo por estabilidad», «Mayor M que cumple»); un clic en un chip
@@ -204,29 +207,97 @@ regenera con el mismo escenario.
 | Horas por día | > 0 y ≤ 24 |
 | Días por semana | > 0 y ≤ 7 |
 | Costos e ingreso por cliente | ≥ 0 |
-| Fracción con ingreso | entre 0 y 1 |
+| Fracción con ingreso | entre 0 y 1, como fracción («0,3») o porcentaje («30 %») |
 | k máximo | entero, 1 a 200 |
 | M máximo (solo finita) | entero, 2 a 300 |
 | Rango a, b (Probabilidades) | enteros, 0 ≤ a ≤ b |
 
-Se aceptan coma o punto decimal. Los campos que no aplican al modelo se deshabilitan
-(conservan su valor) y no se validan.
+Se aceptan coma o punto decimal. Los campos que no aplican al modelo (Población M y
+M máximo en población infinita) se **ocultan** con su etiqueta, unidad y ayuda, sin dejar
+huecos; conservan lo escrito, reaparecen al elegir «Finita» y no se validan mientras están
+ocultos.
 
 ## Exportación CSV
 
 Igual que la versión anterior: separador `;`, UTF-8 con BOM (se abre bien en Excel),
 secciones *Resultados, Probabilidades, Por día, Costos, Variando k, Variando M*, cada
 una con título, encabezados, filas y una línea en blanco. Cambios: la columna
-«% operando» de *Variando k* solo aparece en población finita, la columna de costo de
-espera se titula «CT(TE)+ocio» cuando hay costo de ocio, las columnas de tiempo
-indican la unidad en el encabezado (p. ej. «Wq (min)») y *Probabilidades* lleva las columnas
-Probabilidad, Valor, Valor (%), Significado (la distribución completa agrega «Pn (%)»).
+«% operando» de *Variando k* solo aparece en población finita, las columnas de costo se titulan
+«CT servidores ($/día)», «CT servicio (L) ($/día)» o «CT espera (Lq) ($/día)» (con «+ ocio» si hay
+costo de ocio) y «CT ($/día)», las columnas de tiempo indican la unidad en el encabezado (p. ej.
+«Wq (min)») y *Probabilidades* lleva las columnas Probabilidad, Valor, Valor (%), Significado (la
+distribución completa agrega «Pn (%)»). El CSV sigue las mismas reglas de unidades y porcentajes
+que la pantalla (ver más abajo): sale de las mismas tablas y del mismo formateador.
+
+## Costo de servicio (base L) o costo de espera (base Lq)
+
+El costo por cliente se cobra sobre **una** de dos bases, excluyentes, con un solo campo de
+monto y un selector «Se cobra sobre»:
+
+| Opción | Base | Nombre | Fórmula (por día) |
+|--------|------|--------|-------------------|
+| Tiempo en el sistema, L (costo de servicio) | L | CT servicio (L) | S·L·H·costo por hora |
+| Tiempo en cola, Lq (costo de espera) | Lq | CT espera (Lq) | S·Lq·H·costo por hora |
+
+Con base L el cliente cuesta mientras está en el sistema (atendido o esperando); con base Lq,
+solo mientras espera en la cola. Ninguno de los dos es el **costo por servidor
+(sueldo/arriendo)**, que da «CT servidores». La etiqueta del campo cambia en vivo («Costo de
+servicio» / «Costo de espera»). Todos los textos salen de `calculadora_service.etiquetas_costo()`
+(panel, tabla de costos, comparación, gráficas y «Cómo se calculó»). En las tablas de k y M
+la columna L o Lq que gobierna el costo va en negrita; las dos se muestran porque son medidas
+distintas. Por defecto se cobra sobre Lq, como antes; los textos anteriores de la opción
+(«Lq (solo espera en cola)», «L (espera + servicio)») se siguen aceptando.
+
+## Unidades y porcentajes
+
+Una sola regla para todas las tablas, el panel «Cómo se calculó» y el CSV:
+
+- **ρ y % operando:** siempre en % (también en las tablas de k y M: «ρ (%)»).
+- **Probabilidades** (P0, Pn, Pk/Pw, 1−Pk, P(n<k), P(n>k)): en decimal con los decimales
+  elegidos. En **Resultados** van con su porcentaje en una columna «Valor (%)» al lado, igual que
+  en *Probabilidades*: así la columna «Valor» queda alineada en la coma decimal, se puede ordenar
+  y el CSV tiene una columna numérica por dato (escribir «0,1667 · 16,67 %» en una sola celda
+  mezclaría dos números en un texto). En las tablas anchas de comparación, solo decimal.
+- **Conteos con unidad:** «clientes» (L, Lq, Ln, S·L, S·Lq), «servidores» (ociosos), «unidades»
+  (M − L). Las tarjetas muestran solo el número: la unidad ya está en su nombre.
+- **Tiempos y tasas** en la unidad de «Mostrar tiempos en», también λ efectiva
+  («0,3660 clientes/min»).
+- **Dinero:** «$ 1.234,56» y encabezados con unidad («Por día ($)», «CT ($/día)»).
 
 ## Valores iniciales
 
 Al abrir se resuelve un M/M/1 de ejemplo estable: λ = 10 clientes/h, servicio de
 4 min (μ = 15/h, ρ ≈ 0,67), jornada de 12 h, 7 días y sin costos. El botón
 «Valores iniciales» los restablece.
+
+## Correspondencia con el documento de la cátedra
+
+La app sigue la notación y los ejemplos del documento «Técnicas de Simulación — Teoría de colas».
+
+| Documento | En la app | Notas |
+|-----------|-----------|-------|
+| PICS, PICM, PFCS, PFCM | Sigla junto a la notación de Kendall (M/M/1, M/M/k, M/M/1/M/M, M/M/k/M/M) | |
+| λ, μ | Llegadas λ y servicio μ (por servidor), por hora internamente | En finita, λ es por unidad |
+| ρ (utilización) | ρ, en % | |
+| P0, Pn | P0, Pn (decimal y %) | |
+| Pk: probabilidad de que una unidad que llega tenga que esperar | **Pk** en población infinita (= P(n ≥ k)) | En finita la app usa **Pw** (vista por quien llega) y muestra aparte P(n ≥ k), porque ahí difieren |
+| Lq, L, Wq, W | Lq, L (clientes), Wq, W (unidad elegida) | |
+| Ln: clientes en la cola no vacía | Ln = Lq ÷ P(n > k) | |
+| Wn: espera de los clientes que sí esperan | Wn = Wq ÷ Pk (= 1/(kμ − λ) en infinita) | |
+| Costo del «tiempo perdido» sobre L o W | Costo de servicio, base L (CT servicio) | La opción por defecto sigue siendo base Lq (costo de espera) |
+| Costo del servidor | CT servidores (sueldo/arriendo) | |
+| Datos en % (30 %, 75 %) | «Fracción con ingreso» acepta «0,3» o «30 %» | |
+
+`tests/test_documento_catedra.py` reproduce los ejemplos del documento con la tolerancia de su
+propio redondeo (por ejemplo, «0,600» se compara con ±0,0005): M/M/1 con λ = 5 y μ = 10
+(ρ = 0,5, W = 0,2, costo 28 con 3,5 $/h sobre L y 8 h); λ = 2, μ = 3 (tiempo diario de los
+clientes independientes 3,2 h) y μ = 6 (W = 0,25, costo 34); dos máquinas contra una más
+rápida (P0 = 0,600, W ≈ 0,107, CT ≈ 24,98 contra W = 0,10, CT = 24); la refinería con dos
+canales (P0 = 0,50, Pk ≈ 0,1667, Wq ≈ 0,0417 y Wn = Wq/Pk = 0,25 exacto; el documento da 0,2625
+porque divide valores ya redondeados); la central telefónica con λ = 30 y μ = 12 (k = 5 y 6), y
+los casos de población finita con λ = 0,1 y μ = 0,5 (M = 4 con 1 y 2 mecánicos, 2 sistemas de
+2 máquinas con costo ≈ 228) y con λ/μ = 0,1 para M = 4, 5 y 6. Donde el documento arrastra
+redondeos intermedios la tolerancia es explícita y está comentada en la prueba.
 
 ## Correcciones respecto de la versión anterior
 

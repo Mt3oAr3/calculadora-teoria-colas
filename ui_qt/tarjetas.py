@@ -6,6 +6,8 @@ Reparto: todas en una fila si caben con tamaño normal; si no, en una fila con l
 versión compacta; si tampoco, en filas parejas (p. ej. 4 + 3) de columnas iguales.
 Cada tarjeta emite la clave del indicador al hacer clic (abre «Cómo se calculó»).
 """
+from dataclasses import replace
+
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import QFrame, QGraphicsDropShadowEffect, QGridLayout, QLabel, QSizePolicy, QVBoxLayout, QWidget
 
@@ -174,7 +176,8 @@ class FilaTarjetas(QWidget):
     def mostrar(self, esc, fmt):
         indicadores = cs.indicadores_principales(esc)
         for tarjeta, ind in zip(self._tarjetas(len(indicadores)), indicadores):
-            tarjeta.mostrar(ind, fmt.texto(ind.valor))
+            # Sin el sufijo de conteo («clientes», «unidades»): la unidad ya está en el nombre de la tarjeta
+            tarjeta.mostrar(ind, fmt.texto(replace(ind.valor, sufijo="")))
             tarjeta.marcar_vigente(True)
         self.marcar_activa(self._activa)
         self._igualar_alturas()

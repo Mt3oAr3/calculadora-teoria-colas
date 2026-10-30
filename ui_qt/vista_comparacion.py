@@ -7,11 +7,16 @@ Clic en una fila -> formula_pedida(escenario de esa fila, clave de la fórmula, 
 «Cómo se calculó» de la métrica elegida en la barra para ese k o M. La fila queda
 resaltada y, si cambia la métrica o el cálculo, se vuelve a pedir la fórmula de la misma
 fila; si la fila ya no está, fila_perdida (la ventana cierra el panel).
+
+La lista de métricas depende de la población: en infinita no se ofrecen las que solo aplican
+a población finita ni P(n≥k), que ahí es Pk. Al cambiar de población se conserva la métrica
+elegida si sigue disponible.
 """
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QLineEdit, QPushButton, QVBoxLayout, QWidget
 
 from domain.errores import ErrorEntrada
+from services import calculadora_service as cs
 from services import comparacion_service as cmp
 
 from . import tema
@@ -61,7 +66,7 @@ class PaginaComparacion(QWidget):
         lay.addWidget(lbl)
         fila = QHBoxLayout()
         fila.setSpacing(8)
-        self.cb_metrica = crear_combo([m.nombre for m in cmp.METRICAS], cmp.METRICA_INICIAL, minimo_contenido=14)
+        self.cb_metrica = crear_combo(cmp.metricas_disponibles(False), cmp.texto_inicial(False), minimo_contenido=14)
         # Cambiar la métrica con el panel abierto actualiza la fórmula de la fila (no cierra el panel)
         self.cb_metrica.setProperty("abre_formula", True)
         self.cb_op = crear_combo(cmp.OPERADORES, "≤")
@@ -92,8 +97,8 @@ class PaginaComparacion(QWidget):
         leyenda.addWidget(_muestra("mejor", "Menor costo total"))
         leyenda.addStretch(1)
         lay.addLayout(leyenda)
-        lay.addWidget(InfoBox("Negrita: valor actual. Los tiempos usan la unidad de «Mostrar tiempos en». "
-                              "Verde: el k de menor costo total."))
+        self.info = InfoBox(self._texto_info("Lq"))
+        lay.addWidget(self.info)
 
         # Barridos largos (k máximo hasta 200, M hasta 300): la tabla no pasa de tabla_filas_max filas y
         # tiene su propia barra vertical; el encabezado queda siempre a la vista.
@@ -115,9 +120,36 @@ class PaginaComparacion(QWidget):
         for chips in (self.chips_k, self.chips_M):
             chips.elegido.connect(lambda tipo, valor: self._fila_clicada(cmp.clave_fila(tipo, valor)))
 
+    @staticmethod
+    def _texto_info(base):
+        return (f"Negrita: valor actual, y las columnas k, {base} (base del costo por cliente) y CT. Probabilidades "
+                "en decimal; ρ en %. Los tiempos usan la unidad de «Mostrar tiempos en». "
+                "Verde: el k de menor costo total.")
+
     def mostrar(self, esc, fmt):
         self.esc, self.fmt = esc, fmt
+        self._poner_metricas(esc.p.finita)
+        self.info.setText(self._texto_info(cs.etiquetas_costo(esc.p.cfg).base))
         self.actualizar()
+
+    def _poner_metricas(self, finita):
+        """Métricas de la población elegida; conserva la elegida si sigue disponible (si no, la inicial)."""
+        textos = cmp.metricas_disponibles(finita)
+        cb = self.cb_metrica
+        if textos == [cb.itemText(i) for i in range(cb.count())]:
+            return
+        try:
+            clave = cmp.metrica_por_nombre(cb.currentText()).clave
+        except KeyError:
+            clave = None
+        elegido = next((t for t in textos if cmp.metrica_por_nombre(t).clave == clave), cmp.texto_inicial(finita))
+        cb.blockSignals(True)
+        cb.clear()
+        cb.addItems(textos)
+        cb.setCurrentText(elegido)
+        cb.blockSignals(False)
+        vista = cb.view()
+        vista.setMinimumWidth(vista.sizeHintForColumn(0) + tema.LAYOUT["combo_lista_extra"])
 
     def _marcar(self, error):
         self.ent_lim.setProperty("error", error)
@@ -192,7 +224,8 @@ class PaginaComparacion(QWidget):
         if not tabla.seleccionar_clave(cmp.clave_fila(tipo, valor)):
             self._perder_fila()
             return
-        self.formula_pedida.emit(esc, cmp.clave_formula(metrica), metrica.nombre, cmp.describir_fila(tipo, valor))
+        self.formula_pedida.emit(esc, cmp.clave_formula(metrica), self.cb_metrica.currentText(),
+                                 cmp.describir_fila(tipo, valor))
 
     def _perder_fila(self):
         if self.fila is not None:

@@ -9,7 +9,7 @@ mismos datos, sin leer el texto de los widgets.
 import math
 from dataclasses import dataclass, field
 
-from domain.unidades import ABREV, horas_a_unidad
+from domain.unidades import ABREV, horas_a_unidad, horas_por_unidad
 
 
 @dataclass(frozen=True)
@@ -19,6 +19,7 @@ class Valor:
       tipo: 'texto' | 'entero' | 'num' | 'pct' | 'dinero'
             'tiempo'     -> horas, se muestra convertido y con unidad ("12,0000 min")
             'tiempo_num' -> horas, se muestra convertido sin unidad (la unidad va en el encabezado)
+            'tasa'       -> clientes por hora, se muestra por la unidad elegida ("0,3310 clientes/min")
       decimales: fuerza un número de decimales (None = el elegido por el usuario).
     """
     dato: object
@@ -100,6 +101,13 @@ class Formateador:
             return self.NO_DEFINIDO
         return f"{self.num(self.a_unidad(horas))} {self.abrev_tiempo}"
 
+    def tasa(self, por_hora):
+        """Tasa (clientes por hora) expresada por la unidad de tiempo elegida."""
+        if not _finito(por_hora):
+            return self.NO_DEFINIDO
+        por_unidad = por_hora * horas_por_unidad(self.unidad_tiempo, self.horas_dia)
+        return f"{self.num(por_unidad)} clientes/{self.abrev_tiempo}"
+
     def texto(self, celda):
         if not isinstance(celda, Valor):
             return "" if celda is None else str(celda)
@@ -114,6 +122,8 @@ class Formateador:
             s = self.dinero(x)
         elif t == "tiempo":
             s = self.tiempo(x)
+        elif t == "tasa":
+            s = self.tasa(x)
         elif t == "tiempo_num":
             s = self.num(self.a_unidad(x), celda.decimales)
         else:

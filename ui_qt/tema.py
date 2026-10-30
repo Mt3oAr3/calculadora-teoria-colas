@@ -158,7 +158,8 @@ LAYOUT = {
     "form_espacio_v": 4, "form_espacio_h": 12, "form_separacion_campos": 6,
     "form_margen_cabecera": (16, 14, 16, 8), "form_margen_cuerpo": (12, 6, 12, 12),
     "seccion_margen": (12, 10, 12, 12), "form_ancho_campo": 72, "form_ancho_unidad": 80,
-    "form_relleno_combo": 44,
+    # Lo que una lista no usa para su texto: padding 8 + 28 (derecha), drop-down 28 y bordes (ver QSS)
+    "form_relleno_combo": 68,
     # Listas desplegables (ui_qt/combo.py): chevron propio y ancho extra de la lista emergente
     "combo_flecha_ancho": 9, "combo_flecha_grosor": 1.6, "combo_flecha_margen": 11, "combo_lista_extra": 40,
     "combo_lista_margen": 5,

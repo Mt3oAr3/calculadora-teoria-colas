@@ -167,8 +167,9 @@ class TestVentanaQt(unittest.TestCase):
         self.sp.procesar()
         m = self.v.p_costos.tabla_cost.vista.model()
         filas = {sp.celda(m, r, 0): r for r in range(m.rowCount())}
-        self.assertEqual(sp.celda(m, filas["CT(S) costo de servidores"], 1, "color").name(), tema.color("texto_3"))
-        self.assertIsNone(sp.celda(m, filas["CT(TE) costo del tiempo de espera"], 1, "color"))
+        self.assertEqual(sp.celda(m, filas["CT servidores (sueldo/arriendo)"], 1, "color").name(),
+                         tema.color("texto_3"))
+        self.assertIsNone(sp.celda(m, filas["CT espera (Lq): costo de espera"], 1, "color"))
         self.assertEqual(sp.celda(m, filas["Rentabilidad (ingresos ÷ gastos)"], 1), "—")
 
     def test_boton_ir_a_costos(self):
@@ -542,7 +543,7 @@ class TestVentanaQt(unittest.TestCase):
         self.assertEqual(sp.filas_seleccionadas(vista), [1])          # la fila queda resaltada
 
         # Otra métrica en la barra con el panel abierto: misma fila, nueva fórmula
-        pag.cb_metrica.setCurrentText("Probabilidad de esperar")
+        pag.cb_metrica.setCurrentText("Pk (probabilidad de esperar)")
         sp.procesar()
         self.assertTrue(f.abierto)
         self.assertEqual((f.clave, f.contexto, f._esc.p.k), ("Pw", f"k = {k}", k))
@@ -565,12 +566,10 @@ class TestVentanaQt(unittest.TestCase):
         sp.procesar()
         self.assertEqual((f.contexto, f._esc.p.k, f._fmt.decimales), (f"k = {k0}", k0, 2))
 
-        # Métrica que no aplica (solo población finita): mensaje claro, sin fallar
-        pag.cb_metrica.setCurrentText("Fracción de unidades operando (finita)")
-        sp.procesar()
-        self.assertTrue(f.abierto)
-        self.assertIn(f"para k = {k0}", self._titulo_formula())
-        self.assertIn("solo aplica a población finita", self._textos_formula())
+        # Métrica que no aplica (solo población finita): en infinita ni siquiera se ofrece
+        opciones = [pag.cb_metrica.itemText(i) for i in range(pag.cb_metrica.count())]
+        self.assertNotIn("Fracción de unidades operando (finita)", opciones)
+        self.assertNotIn("P(n≥k) todos ocupados", opciones)          # en infinita es Pk
 
         # Recalcular: si la fila sigue en la comparación se regenera con su escenario (del nuevo cálculo)...
         pag.cb_metrica.setCurrentText("Wq (tiempo en cola)")

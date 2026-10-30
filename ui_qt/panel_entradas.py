@@ -6,6 +6,10 @@ siempre visible abajo.
 
 Igual que la versión Tkinter, no valida ni calcula: entrega el texto de cada
 campo (valores()) y la validación la hace calculadora_service.leer_parametros().
+
+Los campos que no aplican al modelo (M y M máximo en población infinita) se ocultan con
+su etiqueta, unidad, ayuda y el aire que los separa del campo anterior, sin dejar huecos;
+conservan lo escrito y reaparecen al elegir «Finita».
 """
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (QButtonGroup, QComboBox, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit,
@@ -36,6 +40,16 @@ def _combo(opciones):
     return crear_combo(opciones, minimo_contenido=6)
 
 
+def _ancho_para_opciones(combo, minimo=0):
+    """
+    Ancho mínimo para que se lea entera la opción más larga. Se mide con la fuente de la hoja de
+    estilos (ensurePolished): medida antes, con la fuente por defecto, el texto quedaba cortado.
+    """
+    combo.ensurePolished()
+    mas_larga = max(combo.fontMetrics().horizontalAdvance(combo.itemText(i)) for i in range(combo.count()))
+    combo.setMinimumWidth(max(minimo, mas_larga + L["form_relleno_combo"]))
+
+
 class PanelEntradas(QWidget):
     calcular = Signal()
     exportar = Signal()
@@ -50,6 +64,8 @@ class PanelEntradas(QWidget):
         self.etiquetas = {}       # clave -> QLabel del campo
         self.unidades = {}        # clave -> QLabel de unidad
         self.errores = {}         # clave -> QLabel de error (oculto)
+        self.ayudas = {}          # clave -> QLabel de ayuda
+        self._filas = {}          # clave -> (sección, fila de separación o None, widgets del campo)
         self.secciones = {}
         self._silencio = True     # no notificar cambios mientras se construye
 
@@ -103,41 +119,55 @@ class PanelEntradas(QWidget):
         self._cuerpo.addWidget(s)
         return s
 
-    def _campo(self, s, clave, texto, unidad="", ayuda="", opciones=None, unidad_combo=None):
-        """Fila: etiqueta | entrada o lista | unidad. Debajo: ayuda y error (oculto)."""
+    def _campo(self, s, clave, texto, unidad="", ayuda="", opciones=None, unidad_combo=None, ancho_completo=False):
+        """
+        Fila: etiqueta | entrada o lista | unidad. Debajo: ayuda y error (oculto).
+        ancho_completo: la lista va en su propia fila, a todo el ancho (opciones con textos largos).
+        """
+        separador = s.fila if s.fila > 0 else None
         s.separar()
         lbl = etiqueta(texto, "campo")
-        s.agregar(lbl, 0, 1)
+        s.agregar(lbl, 0, 3 if ancho_completo else 1)
+        if ancho_completo:
+            s.siguiente()
         if opciones is not None:
             w = _combo(opciones)
-            # Las listas de opciones (no las de unidad) muestran siempre su texto completo
-            mas_larga = max(w.fontMetrics().horizontalAdvance(o) for o in opciones)
-            w.setMinimumWidth(mas_larga + L["form_relleno_combo"])
         else:
             w = QLineEdit()
             w.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
             w.returnPressed.connect(self.calcular.emit)
             w.setMinimumWidth(L["form_ancho_campo"])
         sin_unidad = opciones is not None and not unidad and unidad_combo is None
-        s.agregar(w, 1, 2 if sin_unidad else 1)
+        if ancho_completo:
+            s.agregar(w, 0, 3)
+        else:
+            s.agregar(w, 1, 2 if sin_unidad else 1)
+        if opciones is not None:
+            _ancho_para_opciones(w)              # ya dentro del panel: con la fuente que se verá
+        propios = [lbl, w]
         if unidad_combo is not None:
             c = _combo(unidad_combo[1])
-            c.setMinimumWidth(L["form_ancho_unidad"])
             self.widgets[unidad_combo[0]] = c
             s.agregar(c, 2, 1)
+            _ancho_para_opciones(c, L["form_ancho_unidad"])
+            propios.append(c)
         elif unidad:
             u = etiqueta(unidad, "unidad")
             self.unidades[clave] = u
             s.agregar(u, 2, 1)
+            propios.append(u)
         s.siguiente()
         if ayuda:
-            s.agregar(etiqueta(ayuda, "ayuda", True))
+            self.ayudas[clave] = a = etiqueta(ayuda, "ayuda", True)
+            s.agregar(a)
             s.siguiente()
+            propios.append(a)
         err = etiqueta("", "error", True)
         err.hide()
         s.agregar(err)
         s.siguiente()
         self.widgets[clave], self.etiquetas[clave], self.errores[clave] = w, lbl, err
+        self._filas[clave] = (s, separador, propios)
         return w
 
     def _desplazado(self, valor):
@@ -178,7 +208,7 @@ class PanelEntradas(QWidget):
         self._campo(s, "S", "Sistemas idénticos S", "sistemas",
                     "Ej.: 2 cajas iguales, cada una con su propia cola (cada una M/M/k). "
                     "Costos y totales se suman. Usa 1 si hay un solo sistema.")
-        self._campo(s, "M", "Población M", "unidades", "Solo población finita: unidades que pueden llegar.")
+        self._campo(s, "M", "Población M", "unidades", "Unidades de la población que pueden llegar al sistema.")
 
     def _grupo_llegadas_servicio(self):
         s = self._seccion("llegadas", "Llegadas y servicio")
@@ -199,18 +229,22 @@ class PanelEntradas(QWidget):
 
     def _grupo_costos(self):
         s = self._seccion("costos", "Costos e ingresos")
-        self._campo(s, "cS", "Costo por servidor", unidad_combo=("cS_u", ["hora", "día"]))
-        self._campo(s, "cW", "Costo de espera", unidad_combo=("cW_u", UNIDADES),
-                    ayuda="$ por cliente y por unidad de tiempo.")
-        self._campo(s, "cW_b", "Se cobra sobre", opciones=list(cs.BASES_ESPERA))
+        # Dos renglones fijos: la columna de etiquetas no se ensancha y el panel conserva su ancho
+        self._campo(s, "cS", "Costo por servidor\n(sueldo/arriendo)", unidad_combo=("cS_u", ["hora", "día"]),
+                    ayuda="$ por servidor contratado; no depende de L ni de Lq.")
+        # «Se cobra sobre» elige entre costo de servicio (base L) y costo de espera (base Lq): son
+        # excluyentes y comparten el campo cW, cuya etiqueta y ayuda cambian con la elección.
+        self._campo(s, "cW_b", "Se cobra sobre", opciones=list(cs.BASES_ESPERA), ancho_completo=True)
+        e = cs.etiquetas_costo(cs.VALORES_INICIALES["cW_b"])
+        self._campo(s, "cW", e.nombre, unidad_combo=("cW_u", UNIDADES), ayuda=e.ayuda)
         self._campo(s, "cI", "Servidor ocioso", "$/h")
         self._campo(s, "ing", "Ingreso por cliente", "$")
-        self._campo(s, "ingF", "Fracción con ingreso", "0 a 1")
+        self._campo(s, "ingF", "Fracción con ingreso", "0 a 1 o %", "Ej.: 0,3 o 30 %.")
 
     def _grupo_analisis(self):
         s = self._seccion("analisis", "Análisis", abierta=False)
         self._campo(s, "kmax", "k máximo", "servidores", "Rango de tablas y gráficas en función de k (≤ 200).")
-        self._campo(s, "Mmax", "M máximo", "unidades", "Solo finita: rango en función de M (2 a 300).")
+        self._campo(s, "Mmax", "M máximo", "unidades", "Rango de la tabla y gráficas en función de M (2 a 300).")
 
     def _grupo_presentacion(self):
         s = self._seccion("presentacion", "Presentación", abierta=False)
@@ -266,6 +300,8 @@ class PanelEntradas(QWidget):
         if clave == "poblacion":
             self.radios[texto].setChecked(True)
             return
+        if clave == "cW_b":
+            texto = cs.BASES_ESPERA_ANTIGUAS.get(texto, texto)      # estados guardados con los textos viejos
         w = self.widgets[clave]
         if isinstance(w, QComboBox):
             w.setCurrentText(texto)
@@ -301,16 +337,28 @@ class PanelEntradas(QWidget):
         if not self._silencio:
             self.presentacion_cambio.emit()
 
+    def campo_visible(self, clave):
+        """True si el campo se muestra (no está oculto por no aplicar al modelo)."""
+        return not self.widgets[clave].isHidden()
+
+    def _mostrar_campo(self, clave, visible):
+        """Muestra u oculta el campo entero (etiqueta, entrada, unidad, ayuda y su separación)."""
+        seccion, separador, propios = self._filas[clave]
+        for w in propios:
+            w.setVisible(visible)
+        if separador is not None:
+            seccion.rejilla.setRowMinimumHeight(separador, L["form_separacion_campos"] if visible else 0)
+        if not visible:
+            self._ocultar_error(clave)
+
     def _actualizar_dependencias(self):
-        """Habilita solo los campos que aplican al modelo y actualiza las vistas previas."""
+        """Muestra solo los campos que aplican al modelo y actualiza etiquetas y vistas previas."""
         finita = self.finita
         for clave in ("M", "Mmax"):
-            aplica = cs.campo_aplica(clave, finita)
-            for w in (self.widgets[clave], self.etiquetas[clave], self.unidades.get(clave)):
-                if w is not None:
-                    w.setEnabled(aplica)
-            if not aplica:
-                self._ocultar_error(clave)
+            self._mostrar_campo(clave, cs.campo_aplica(clave, finita))
+        e = cs.etiquetas_costo(self.get("cW_b"))
+        self.etiquetas["cW"].setText(e.nombre)
+        self.ayudas["cW"].setText(e.ayuda)
         self.etiquetas["lam"].setText("Valor (por unidad)" if finita else "Valor")
         self._vista_previa("lam", cs.MODO_LAM, self.lbl_previa_lam, "λ")
         self._vista_previa("mu", cs.MODO_MU, self.lbl_previa_mu, "μ")
